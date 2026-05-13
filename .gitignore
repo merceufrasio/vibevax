@@ -1,6 +1,7 @@
 node_modules
 .expo
 .expo-shared
+.playwright-mcp
 dist
 web-build
 plan

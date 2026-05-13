@@ -9,7 +9,7 @@ const ACTIVE_SOURCE_KEY = "@revax/sources/active-source";
 const SCRIPT_CACHE_PREFIX = "@revax/sources/script-cache/";
 
 export const DEFAULT_REGISTRY_URL =
-  "https://raw.githubusercontent.com/youngbi/repo/main/plugins.json";
+  "https://gist.githubusercontent.com/minhducle25/906a700e8817ca70728c2ecda1c4e7ec/raw/4a3f89a9b01e50ac524841763f9a006ff4f987a0/plugins1.json";
 
 export const BUNDLED_REGISTRY = bundledRegistry as PluginRegistry;
 
@@ -113,4 +113,3 @@ export async function clearPluginScriptCache(plugin: PluginRegistryItem) {
   const key = `${SCRIPT_CACHE_PREFIX}${plugin.id}:${plugin.version}`;
   await AsyncStorage.removeItem(key);
 }
-

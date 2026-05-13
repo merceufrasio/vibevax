@@ -1,30 +1,39 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { CastList } from "@/components/movie/CastList";
-import { EpisodeList } from "@/components/movie/EpisodeList";
-import { MovieActions } from "@/components/movie/MovieActions";
 import { MovieHeader } from "@/components/movie/MovieHeader";
 import { MovieInfo } from "@/components/movie/MovieInfo";
 import { MoviePlayer } from "@/components/movie/MoviePlayer";
-import { RecommendList } from "@/components/movie/RecommendList";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
-import { useFavorites } from "@/hooks/useFavorites";
 import { useMovies } from "@/hooks/useMovies";
 import { useSourceMovieDetail } from "@/hooks/useSourceMovieDetail";
 import { useWatchHistory } from "@/hooks/useWatchHistory";
 import { sourceDetailToMovie } from "@/sources/adapters";
-import type { DetailTab } from "@/types/movie";
 
-const tabs: DetailTab[] = ["episodes", "cast", "recommendations"];
+type EpisodeGroup = {
+  label: string;
+  items: Array<{
+    id: string;
+    meta: string;
+    title: string;
+  }>;
+};
+
+function splitEpisodeTitle(rawTitle: string) {
+  const [groupLabel, ...rest] = rawTitle.split(" - ");
+
+  return {
+    groupLabel: groupLabel?.trim() || "Bản xem",
+    itemTitle: rest.join(" - ").trim() || rawTitle,
+  };
+}
 
 export default function MovieDetailScreen() {
   const router = useRouter();
@@ -32,11 +41,8 @@ export default function MovieDetailScreen() {
     id: string;
     sourceId?: string;
   }>();
-  const { t } = useTranslation();
   const { addHistory } = useWatchHistory();
-  const { isFavorite, toggleFavorite } = useFavorites();
-  const { getMovieById, getRecommendedMovies } = useMovies();
-  const [activeTab, setActiveTab] = useState<DetailTab>("episodes");
+  const { getMovieById } = useMovies();
   const {
     clearStream,
     detail: sourceDetail,
@@ -53,7 +59,6 @@ export default function MovieDetailScreen() {
       ? sourceDetailToMovie(sourceDetail)
       : null
     : getMovieById(id);
-  const favoriteId = isSourceMovie ? `${sourceId}:${id}` : id;
   const defaultEpisode =
     movie?.episodes.find((episode) => episode.number === movie.currentEpisode) ??
     movie?.episodes.at(-1) ??
@@ -74,6 +79,32 @@ export default function MovieDetailScreen() {
   const selectedEpisodeLabel = selectedEpisodeNumber
     ? `Tập ${selectedEpisodeNumber}`
     : movie?.releaseNote;
+
+  const groupedEpisodes: EpisodeGroup[] = movie
+    ? movie.episodes.reduce<EpisodeGroup[]>((groups, episode) => {
+        const { groupLabel, itemTitle } = splitEpisodeTitle(episode.title);
+        const existingGroup = groups.find((group) => group.label === groupLabel);
+        const item = {
+          id: episode.id,
+          meta:
+            episode.durationMinutes > 0
+              ? `${episode.durationMinutes} phút`
+              : "Sẵn sàng phát",
+          title: itemTitle,
+        };
+
+        if (existingGroup) {
+          existingGroup.items.push(item);
+        } else {
+          groups.push({
+            label: groupLabel,
+            items: [item],
+          });
+        }
+
+        return groups;
+      }, [])
+    : [];
 
   const handleWatch = async (episodeId?: string) => {
     if (!movie) {
@@ -120,8 +151,6 @@ export default function MovieDetailScreen() {
     );
   }
 
-  const recommendedMovies = isSourceMovie ? [] : getRecommendedMovies(movie);
-
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
@@ -138,104 +167,77 @@ export default function MovieDetailScreen() {
           />
         )}
 
-        <View style={styles.primaryActions}>
-          <Button
-            icon={<Ionicons color={Colors.text.inverse} name="play" size={18} />}
-            label={isResolvingStream ? "Đang lấy link" : t("actions.watchNow")}
-            onPress={() => handleWatch(selectedEpisodeId ?? defaultEpisodeId)}
-            style={styles.actionButton}
-          />
-          <Button
-            icon={<Ionicons color={Colors.text.primary} name="list" size={18} />}
-            label={t("actions.episodes")}
-            onPress={() => setActiveTab("episodes")}
-            style={styles.actionButton}
-            variant="outline"
-          />
-        </View>
+        {groupedEpisodes.length ? (
+          <View style={styles.selectorSection}>
+            <Text style={styles.selectorTitle}>Chọn bản xem</Text>
+            <Text style={styles.selectorHint}>
+              Chạm vào một bản để phát ngay
+            </Text>
+
+            <View style={styles.selectorGroups}>
+              {groupedEpisodes.map((group) => (
+                <View key={group.label} style={styles.selectorGroup}>
+                  <Text style={styles.selectorGroupTitle}>{group.label}</Text>
+                  <ScrollView
+                    contentContainerStyle={styles.selectorRow}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {group.items.map((item) => {
+                      const isActive = item.id === selectedEpisodeId;
+
+                      return (
+                        <Pressable
+                          key={item.id}
+                          onPress={() => {
+                            setSelectedEpisodeId(item.id);
+                            void handleWatch(item.id);
+                          }}
+                          style={[
+                            styles.selectorCard,
+                            isActive ? styles.selectorCardActive : null,
+                          ]}
+                        >
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.selectorCardTitle,
+                              isActive ? styles.selectorCardTitleActive : null,
+                            ]}
+                          >
+                            {item.title}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.selectorCardMeta,
+                              isActive ? styles.selectorCardMetaActive : null,
+                            ]}
+                          >
+                            {isResolvingStream && isActive
+                              ? "Đang lấy link..."
+                              : item.meta}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         <MovieInfo
           movie={movie}
           selectedEpisodeNumber={selectedEpisodeNumber}
         />
 
-        <MovieActions
-          actions={[
-            {
-              icon: isFavorite(favoriteId) ? "heart" : "heart-outline",
-              label: t("actions.favorite"),
-              onPress: () => toggleFavorite(favoriteId),
-            },
-            {
-              icon: "add",
-              label: t("actions.addToList"),
-              onPress: () => addHistory(movie.id, movie.lastEpisodeLabel),
-            },
-            {
-              icon: "happy-outline",
-              label: t("actions.rate"),
-              onPress: () => undefined,
-            },
-            {
-              icon: "chatbubble-ellipses-outline",
-              label: t("actions.comment"),
-              onPress: () => undefined,
-            },
-            {
-              icon: "paper-plane-outline",
-              label: t("actions.share"),
-              onPress: () => undefined,
-            },
-          ]}
-        />
-
-        <View style={styles.tabs}>
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab;
-
-            return (
-              <Pressable
-                key={tab}
-                onPress={() => setActiveTab(tab)}
-                style={[styles.tab, isActive ? styles.tabActive : null]}
-              >
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    isActive ? styles.tabLabelActive : styles.tabLabelInactive,
-                  ]}
-                >
-                  {t(`detail.tabs.${tab}`)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.tabContent}>
-          {activeTab === "episodes" ? (
-            <EpisodeList
-              activeEpisodeId={selectedEpisodeId}
-              movie={movie}
-              onPressEpisode={(episode) => {
-                setSelectedEpisodeId(episode.id);
-                void handleWatch(episode.id);
-              }}
-            />
-          ) : null}
-          {activeTab === "cast" ? <CastList cast={movie.cast} /> : null}
-          {activeTab === "recommendations" && recommendedMovies.length ? (
-            <RecommendList
-              movies={recommendedMovies}
-              onPressMovie={(nextMovie) =>
-                router.push({
-                  pathname: "/movie/[id]",
-                  params: { id: nextMovie.id },
-                })
-              }
-            />
-          ) : null}
-        </View>
+        {movie.cast.length ? (
+          <View style={styles.castSection}>
+            <Text style={styles.castHeading}>Diễn viên</Text>
+            <CastList cast={movie.cast} />
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -250,43 +252,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.screenPadding,
     paddingBottom: 40,
   },
-  primaryActions: {
-    flexDirection: "row",
+  selectorSection: {
+    marginBottom: 18,
+  },
+  selectorTitle: {
+    ...Typography.cardTitle,
+    color: Colors.text.primary,
+  },
+  selectorHint: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 4,
+  },
+  selectorGroups: {
     gap: 12,
-    marginBottom: 20,
+    marginTop: 14,
   },
-  actionButton: {
-    flex: 1,
+  selectorGroup: {
+    gap: 8,
   },
-  tabs: {
-    flexDirection: "row",
-    backgroundColor: Colors.background.surface,
-    borderRadius: 8,
-    padding: 4,
-    marginTop: 8,
-  },
-  tab: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabActive: {
-    backgroundColor: Colors.accent.primary,
-  },
-  tabLabel: {
+  selectorGroupTitle: {
     ...Typography.body,
-  },
-  tabLabelActive: {
-    color: Colors.text.inverse,
+    color: Colors.accent.primary,
     fontFamily: "Inter_600SemiBold",
   },
-  tabLabelInactive: {
-    color: Colors.text.secondary,
+  selectorRow: {
+    gap: 10,
+    paddingRight: 12,
   },
-  tabContent: {
-    marginTop: 16,
+  selectorCard: {
+    minWidth: 148,
+    minHeight: 72,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Colors.background.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    justifyContent: "center",
+  },
+  selectorCardActive: {
+    backgroundColor: "rgba(79,209,197,0.12)",
+    borderColor: "rgba(79,209,197,0.42)",
+  },
+  selectorCardTitle: {
+    ...Typography.cardTitle,
+    color: Colors.text.primary,
+  },
+  selectorCardTitleActive: {
+    color: Colors.accent.primary,
+  },
+  selectorCardMeta: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 4,
+  },
+  selectorCardMetaActive: {
+    color: Colors.text.primary,
+  },
+  castSection: {
+    marginTop: 8,
+  },
+  castHeading: {
+    ...Typography.sectionTitle,
+    color: Colors.text.primary,
+    marginBottom: 12,
   },
   fallback: {
     flex: 1,
