@@ -1,0 +1,95 @@
+import { useRouter } from "expo-router";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useTranslation } from "react-i18next";
+
+import { EmptyState } from "@/components/shared/EmptyState";
+import { MovieCard } from "@/components/shared/MovieCard";
+import { Colors } from "@/constants/Colors";
+import { Layout } from "@/constants/Layout";
+import { Typography } from "@/constants/Typography";
+import { useFavorites } from "@/hooks/useFavorites";
+import { useMovies } from "@/hooks/useMovies";
+
+export default function FavoritesScreen() {
+  const router = useRouter();
+  const { t } = useTranslation();
+  const { favoriteIds } = useFavorites();
+  const { getMovieById } = useMovies();
+
+  const favoriteMovies = favoriteIds
+    .map((movieId) => getMovieById(movieId))
+    .filter((movie): movie is NonNullable<typeof movie> => Boolean(movie));
+
+  return (
+    <SafeAreaView edges={["top"]} style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>{t("favorites.title")}</Text>
+          <Text style={styles.subtitle}>{t("favorites.subtitle")}</Text>
+        </View>
+
+        {favoriteMovies.length ? (
+          <View style={styles.grid}>
+            {favoriteMovies.map((movie) => (
+              <View key={movie.id} style={styles.item}>
+                <MovieCard
+                  movie={movie}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/movie/[id]",
+                      params: { id: movie.id },
+                    })
+                  }
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <EmptyState
+            body={t("favorites.emptyBody")}
+            icon="heart-outline"
+            title={t("favorites.emptyTitle")}
+          />
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: Colors.background.primary,
+  },
+  content: {
+    paddingHorizontal: Layout.screenPadding,
+    paddingBottom: Layout.tabBarHeight + 40,
+  },
+  header: {
+    marginBottom: 24,
+  },
+  title: {
+    ...Typography.heroTitle,
+    color: Colors.text.primary,
+    fontSize: 30,
+    lineHeight: 36,
+  },
+  subtitle: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    marginTop: 6,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  item: {
+    marginBottom: 24,
+  },
+});
+

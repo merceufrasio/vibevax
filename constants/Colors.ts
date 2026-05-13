@@ -1,0 +1,40 @@
+export const Colors = {
+  background: {
+    primary: "#0A0E17",
+    secondary: "#111827",
+    surface: "#1A2332",
+    elevated: "#243044",
+    muted: "#2D3748",
+  },
+  text: {
+    primary: "#F7FAFC",
+    secondary: "#A0AEC0",
+    muted: "#718096",
+    inverse: "#0A0E17",
+  },
+  accent: {
+    primary: "#4FD1C5",
+    pressed: "#38B2AC",
+    muted: "rgba(79,209,197,0.16)",
+    secondary: "#F6AD55",
+    gold: "#F5C518",
+    danger: "#FC8181",
+    success: "#68D391",
+  },
+  border: "rgba(255,255,255,0.08)",
+  divider: "rgba(255,255,255,0.05)",
+  badge: "rgba(255,255,255,0.12)",
+  overlay: "rgba(10,14,23,0.72)",
+  shadow: "rgba(0,0,0,0.3)",
+  heroGradient: ["rgba(10,14,23,0)", "rgba(10,14,23,0.88)"] as const,
+  buttonGradient: ["#5BE7DA", "#38B2AC"] as const,
+  collectionGradients: {
+    marvel: ["#E53E3E", "#C53030"] as const,
+    "dc-comic": ["#2B6CB0", "#2C5282"] as const,
+    "chau-tinh-tri": ["#805AD5", "#6B46C1"] as const,
+    doraemon: ["#3182CE", "#2B6CB0"] as const,
+    "keo-ly": ["#D69E2E", "#B7791F"] as const,
+    anime: ["#ED64A6", "#D53F8C"] as const,
+  },
+} as const;
+

@@ -1,0 +1,72 @@
+{
+  "tabs": {
+    "home": "Home",
+    "history": "History",
+    "favorites": "Favorites"
+  },
+  "actions": {
+    "watchNow": "Watch now",
+    "continueWatching": "Continue",
+    "favorite": "Favorite",
+    "addToList": "Add",
+    "rate": "Rate",
+    "comment": "Comment",
+    "share": "Share",
+    "episodes": "Episodes",
+    "search": "Search",
+    "more": "More",
+    "clear": "Clear",
+    "retry": "Retry"
+  },
+  "sections": {
+    "interests": "What are you in the mood for?",
+    "cn": "New Chinese series",
+    "usuk": "New US-UK releases",
+    "kr": "New Korean releases",
+    "recommended": "Picked for you",
+    "recentSearches": "Recent searches",
+    "trending": "Trending now"
+  },
+  "detail": {
+    "tabs": {
+      "episodes": "Episodes",
+      "cast": "Cast",
+      "recommendations": "More like this"
+    },
+    "synopsis": "Synopsis",
+    "readMore": "Read more",
+    "readLess": "Collapse",
+    "updated": "Fresh update",
+    "castHeading": "Cast",
+    "recommendationHeading": "You may also like"
+  },
+  "history": {
+    "title": "Watch history",
+    "subtitle": "Things you opened recently.",
+    "emptyTitle": "No watch history yet",
+    "emptyBody": "Once you tap watch on a movie, ReVax keeps it here for a quick return."
+  },
+  "favorites": {
+    "title": "Favorites",
+    "subtitle": "Movies you want to revisit.",
+    "emptyTitle": "No favorites yet",
+    "emptyBody": "Tap the heart on the detail screen or hero cards to save a movie."
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Movie title, cast, keyword...",
+    "emptyTitle": "No results found",
+    "emptyBody": "Try a shorter keyword or switch the filter.",
+    "results": "Results",
+    "genres": "Genres"
+  },
+  "meta": {
+    "language": "Language",
+    "vi": "VI",
+    "en": "EN",
+    "part": "Part",
+    "episode": "Episode",
+    "fullSeason": "Complete"
+  }
+}
+
