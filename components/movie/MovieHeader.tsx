@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Badge } from "@/components/ui/Badge";
 import { IconButton } from "@/components/ui/IconButton";
 import { Colors } from "@/constants/Colors";
+import { useSourceImageSource } from "@/hooks/useSourceImageSource";
 import type { Movie } from "@/types/movie";
 
 type MovieHeaderProps = {
@@ -21,12 +22,13 @@ export function MovieHeader({
   selectedEpisodeLabel,
 }: MovieHeaderProps) {
   const insets = useSafeAreaInsets();
+  const backdropSource = useSourceImageSource(movie.backdrop, undefined, movie.title, movie.year);
 
   return (
     <View style={styles.container}>
       <Image
         contentFit="cover"
-        source={{ uri: movie.backdrop }}
+        source={backdropSource}
         style={StyleSheet.absoluteFillObject}
         transition={220}
       />

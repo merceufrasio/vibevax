@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 
@@ -18,12 +19,22 @@ export function CastList({ cast }: CastListProps) {
     >
       {cast.map((member) => (
         <View key={member.id} style={styles.card}>
-          <Image
-            contentFit="cover"
-            source={{ uri: member.avatar }}
-            style={styles.avatar}
-            transition={120}
-          />
+          {member.avatar ? (
+            <Image
+              contentFit="cover"
+              source={{ uri: member.avatar }}
+              style={styles.avatar}
+              transition={120}
+            />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback]}>
+              <Ionicons
+                color={Colors.text.secondary}
+                name="person-outline"
+                size={34}
+              />
+            </View>
+          )}
           <Text numberOfLines={1} style={styles.name}>
             {member.name}
           </Text>
@@ -51,6 +62,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background.surface,
     marginBottom: 10,
   },
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   name: {
     ...Typography.cardTitle,
     fontSize: 14,
@@ -63,4 +78,3 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
-

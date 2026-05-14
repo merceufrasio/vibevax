@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Image, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -339,17 +339,55 @@ function buildBlockedRequestScript(stream: StreamResult, rules: BlockRule[]) {
 }
 
 export function MoviePlayer({ stream, onClose }: Props) {
+  const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const isEmbed = stream.isEmbed;
+  const isImageGallery = Boolean(stream.images?.length);
   const allowedHosts = useMemo(() => getAllowedHosts(stream), [stream]);
   const blockRules = useMemo(() => getBlockRules(stream), [stream]);
+  const playerUrl = isImageGallery ? "" : stream.url;
 
-  const player = useVideoPlayer(stream.url, (p) => {
+  const player = useVideoPlayer(playerUrl, (p) => {
     p.play();
   });
 
   return (
-    <View style={styles.container}>
-      {isEmbed ? (
+    <View style={[styles.container, isImageGallery ? styles.galleryContainer : null]}>
+      {isImageGallery ? (
+        <View style={styles.galleryList}>
+          {stream.images?.map((imageUrl) => (
+            <Image
+              key={imageUrl}
+              onLoad={(event) => {
+                const { width, height } = event.nativeEvent.source;
+                if (width && height) {
+                  setImageRatios((current) => {
+                    const nextRatio = width / height;
+                    if (current[imageUrl] === nextRatio) {
+                      return current;
+                    }
+
+                    return {
+                      ...current,
+                      [imageUrl]: nextRatio,
+                    };
+                  });
+                }
+              }}
+              resizeMode="contain"
+              source={{
+                uri: imageUrl,
+                headers: stream.headers,
+              }}
+              style={[
+                styles.galleryImage,
+                {
+                  aspectRatio: imageRatios[imageUrl] ?? 3 / 4,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : isEmbed ? (
         <WebView
           allowsInlineMediaPlayback={false}
           injectedJavaScript={stream.webView?.injectedJavaScript}
@@ -434,6 +472,19 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     backgroundColor: "#000",
     position: "relative",
+  },
+  galleryContainer: {
+    aspectRatio: undefined,
+    minHeight: 220,
+    paddingBottom: 12,
+  },
+  galleryList: {
+    gap: 12,
+  },
+  galleryImage: {
+    width: "100%",
+    backgroundColor: "#000",
+    borderRadius: 16,
   },
   video: {
     width: "100%",

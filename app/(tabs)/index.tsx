@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { HeroCarousel } from "@/components/home/HeroCarousel";
@@ -47,6 +47,7 @@ export default function HomeScreen() {
   const { featuredMovies, getMoviesByRegion, homeSections } = useMovies();
   const {
     activeSource,
+    challenge: sourceChallenge,
     error: sourceError,
     isLoading: isSourceLoading,
     sections: sourceSections,
@@ -76,7 +77,14 @@ export default function HomeScreen() {
           <SourceStatus
             error={sourceError}
             isLoading={isSourceLoading}
-            onPress={() => router.push("/settings")}
+            onPress={() =>
+              sourceChallenge
+                ? router.push({
+                    pathname: "/source-verify",
+                    params: { challengeId: sourceChallenge.id },
+                  })
+                : router.push("/settings")
+            }
             sourceName={activeSource?.name}
           />
 
@@ -115,11 +123,14 @@ export default function HomeScreen() {
               icon={<Ionicons color={Colors.text.primary} name="menu" size={20} />}
               onPress={() => router.push("/settings")}
             />
-            <Image
-              contentFit="contain"
-              source={require("../../assets/images/revax-logo.png")}
-              style={styles.logo}
-            />
+            <View style={styles.brand}>
+              <Image
+                contentFit="contain"
+                source={require("../../assets/images/revax-app-icon.png")}
+                style={styles.brandIcon}
+              />
+              <Text style={styles.brandText}>ReVax</Text>
+            </View>
             <IconButton
               icon={<Ionicons color={Colors.text.primary} name="search" size={20} />}
               onPress={() => router.push("/search")}
@@ -159,8 +170,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.screenPadding,
     backgroundColor: "transparent",
   },
-  logo: {
-    width: 132,
-    height: 34,
+  brand: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 132,
+    justifyContent: "center",
+  },
+  brandIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+  },
+  brandText: {
+    color: Colors.text.primary,
+    fontSize: 24,
+    lineHeight: 28,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.2,
   },
 });

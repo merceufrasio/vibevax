@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
+import { useSourceImageSource } from "@/hooks/useSourceImageSource";
 import type { Movie } from "@/types/movie";
 
 type HeroCarouselProps = {
@@ -58,6 +59,7 @@ export function HeroCarousel({ movies, sourceId }: HeroCarouselProps) {
   }, [movies]);
 
   const activeMovie = movies[activeIndex] ?? movies[0];
+  const backdropSource = useSourceImageSource(activeMovie?.backdrop, sourceId, activeMovie?.title, activeMovie?.year);
 
   useEffect(() => {
     if (!movies.length) {
@@ -145,7 +147,7 @@ export function HeroCarousel({ movies, sourceId }: HeroCarouselProps) {
     <View style={styles.container}>
       <Image
         contentFit="cover"
-        source={{ uri: activeMovie.backdrop }}
+        source={backdropSource}
         style={styles.backdrop}
         transition={220}
       />

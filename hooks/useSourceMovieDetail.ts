@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 import { SourceRepository } from "@/sources/sourceRepository";
+import {
+  isSourceChallengeRequiredError,
+  subscribeToSourceChallenge,
+  type SourceChallengeRequest,
+} from "@/sources/sourceChallenge";
+import { enrichSourceMovieDetailWithMetadata } from "@/sources/tmdbMetadata";
 import type { SourceMovieDetail, StreamResult } from "@/sources/types";
 
 export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
@@ -12,6 +18,8 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
   const [isResolvingStream, setIsResolvingStream] = useState(false);
   const [stream, setStream] = useState<StreamResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<SourceChallengeRequest | null>(null);
+  const [pendingEpisodeId, setPendingEpisodeId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const plugin = registry?.plugins.find((item) => item.id === sourceId);
@@ -24,6 +32,7 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
 
     setIsLoading(true);
     setError(null);
+    setChallenge(null);
 
     try {
       const nextRepository = await SourceRepository.create(plugin);
@@ -31,10 +40,29 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
 
       setRepository(nextRepository);
       setDetail(nextDetail);
+
+      if (nextDetail) {
+        void enrichSourceMovieDetailWithMetadata(nextDetail).then(
+          (enrichedDetail) => {
+            setDetail((currentDetail) => {
+              if (!currentDetail || currentDetail.id !== enrichedDetail.id) {
+                return currentDetail;
+              }
+
+              return enrichedDetail;
+            });
+          },
+        );
+      }
     } catch (loadError) {
       setRepository(null);
       setDetail(null);
-      setError(String(loadError));
+      if (isSourceChallengeRequiredError(loadError)) {
+        setChallenge(loadError.challenge);
+        setError(loadError.message);
+      } else {
+        setError(String(loadError));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -52,14 +80,23 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
 
       setIsResolvingStream(true);
       setError(null);
+      setChallenge(null);
+      setPendingEpisodeId(episodeId);
 
       try {
         const nextStream = await repository.resolveStream(episodeId);
         setStream(nextStream);
+        setPendingEpisodeId(null);
         return nextStream;
       } catch (streamError) {
         setStream(null);
-        setError(String(streamError));
+        if (isSourceChallengeRequiredError(streamError)) {
+          setChallenge(streamError.challenge);
+          setError(streamError.message);
+        } else {
+          setError(String(streamError));
+          setPendingEpisodeId(null);
+        }
         return null;
       } finally {
         setIsResolvingStream(false);
@@ -68,12 +105,34 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
     [repository],
   );
 
-    const clearStream = useCallback(() => setStream(null), []);
+  useEffect(() => {
+    if (!challenge) {
+      return;
+    }
 
-    return {
-      clearStream,
-      detail,
-      error,
+    return subscribeToSourceChallenge(challenge.id, (event) => {
+      setChallenge(null);
+
+      if (event.status !== "resolved") {
+        return;
+      }
+
+      if (pendingEpisodeId) {
+        void resolveStream(pendingEpisodeId);
+        return;
+      }
+
+      void load();
+    });
+  }, [challenge, load, pendingEpisodeId, resolveStream]);
+
+  const clearStream = useCallback(() => setStream(null), []);
+
+  return {
+    challenge,
+    clearStream,
+    detail,
+    error,
     isLoading,
     isResolvingStream,
     reload: load,

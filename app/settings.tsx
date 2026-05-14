@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -42,6 +43,8 @@ export default function SettingsScreen() {
     registryUrl,
     setActiveSource,
     setRegistryUrl,
+    setShowAdultSources,
+    showAdultSources,
   } = useSourceSettings();
   const [draftUrl, setDraftUrl] = useState(registryUrl);
   const [adBlockLogs, setAdBlockLogs] = useState<AdBlockLogEntry[]>([]);
@@ -58,7 +61,9 @@ export default function SettingsScreen() {
     void reloadLogs();
   }, []);
 
-  const plugins = registry?.plugins ?? [];
+  const plugins = (registry?.plugins ?? []).filter(
+    (plugin) => showAdultSources || !isLikelyAdultSource(plugin),
+  );
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -109,6 +114,26 @@ export default function SettingsScreen() {
           <Text style={styles.count}>{isLoading ? "..." : `${plugins.length}`}</Text>
         </View>
 
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleCopy}>
+            <Text style={styles.toggleTitle}>Hiện nguồn 18+</Text>
+            <Text style={styles.toggleSubtitle}>
+              Bật để hiển thị thêm các plugin người lớn trong danh sách nguồn.
+            </Text>
+          </View>
+          <Switch
+            onValueChange={(value) => {
+              void setShowAdultSources(value);
+            }}
+            thumbColor={showAdultSources ? Colors.text.inverse : Colors.text.primary}
+            trackColor={{
+              false: "rgba(255,255,255,0.16)",
+              true: Colors.accent.primary,
+            }}
+            value={showAdultSources}
+          />
+        </View>
+
         <View style={styles.list}>
           {plugins.map((plugin) => {
             const isActive = plugin.id === activeSourceId;
@@ -152,7 +177,7 @@ export default function SettingsScreen() {
 
         <View style={styles.logPanel}>
           <View style={styles.logHeader}>
-            <View>
+            <View style={styles.logHeaderCopy}>
               <Text style={styles.sectionTitle}>Nhật ký chặn quảng cáo</Text>
               <Text style={styles.logSubtitle}>
                 Xem các URL bị chặn để nhận diện pattern mới theo từng nguồn.
@@ -287,6 +312,31 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.text.secondary,
   },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  toggleCopy: {
+    flex: 1,
+  },
+  toggleTitle: {
+    ...Typography.cardTitle,
+    color: Colors.text.primary,
+  },
+  toggleSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 4,
+  },
   list: {
     gap: 10,
   },
@@ -367,12 +417,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
+    gap: 12,
+  },
+  logHeaderCopy: {
+    flex: 1,
   },
   logSubtitle: {
     ...Typography.caption,
     color: Colors.text.secondary,
     marginTop: 4,
-    maxWidth: 260,
   },
   logList: {
     gap: 12,

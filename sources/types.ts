@@ -77,7 +77,11 @@ export type SourceMovieDetail = SourceMovieItem & {
   country?: string;
   director?: string;
   casts?: string;
+  castProfiles?: Record<string, string>;
   status?: string;
+  tmdbId?: string;
+  tmdbType?: string;
+  tmdbSeason?: number;
   servers: SourceServer[];
 };
 
@@ -103,6 +107,7 @@ export type StreamResult = {
   postBody?: string;
   mimeType?: string;
   sourceId?: string;
+  images?: string[];
   webView?: {
     allowedDomains?: string[];
     injectedJavaScript?: string;

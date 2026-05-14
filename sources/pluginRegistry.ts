@@ -8,7 +8,7 @@ const ACTIVE_SOURCE_KEY = "@revax/sources/active-source";
 const SCRIPT_CACHE_PREFIX = "@revax/sources/script-cache/";
 
 export const DEFAULT_REGISTRY_URL =
-  "https://gist.githubusercontent.com/minhducle25/906a700e8817ca70728c2ecda1c4e7ec/raw/2133b7071508b254001b66a5c1ce33c0bfb5ef6d/plugins1.json";
+  "https://gist.githubusercontent.com/minhducle25/906a700e8817ca70728c2ecda1c4e7ec/raw/e4653305b295241045e0aa298d17646606f991e7/plugins1.json";
 
 const ADULT_SOURCE_PATTERN =
   /(missav|misskon|jav|vlxx|sextop|topxx|avdb|sayhentai)/i;
@@ -92,8 +92,12 @@ export async function saveActiveSourceId(sourceId: string) {
   await AsyncStorage.setItem(ACTIVE_SOURCE_KEY, sourceId);
 }
 
+function getPluginScriptCacheKey(plugin: PluginRegistryItem) {
+  return `${SCRIPT_CACHE_PREFIX}${plugin.id}:${plugin.version}:${plugin.scriptUrl.trim()}`;
+}
+
 export async function getCachedPluginScript(plugin: PluginRegistryItem) {
-  const key = `${SCRIPT_CACHE_PREFIX}${plugin.id}:${plugin.version}`;
+  const key = getPluginScriptCacheKey(plugin);
   return AsyncStorage.getItem(key);
 }
 
@@ -101,11 +105,11 @@ export async function cachePluginScript(
   plugin: PluginRegistryItem,
   script: string,
 ) {
-  const key = `${SCRIPT_CACHE_PREFIX}${plugin.id}:${plugin.version}`;
+  const key = getPluginScriptCacheKey(plugin);
   await AsyncStorage.setItem(key, script);
 }
 
 export async function clearPluginScriptCache(plugin: PluginRegistryItem) {
-  const key = `${SCRIPT_CACHE_PREFIX}${plugin.id}:${plugin.version}`;
+  const key = getPluginScriptCacheKey(plugin);
   await AsyncStorage.removeItem(key);
 }

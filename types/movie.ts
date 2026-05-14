@@ -8,7 +8,7 @@ export interface CastMember {
   id: string;
   name: string;
   role: string;
-  avatar: string;
+  avatar?: string;
 }
 
 export interface Episode {

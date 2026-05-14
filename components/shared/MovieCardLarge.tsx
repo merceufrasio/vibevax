@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
+import { useSourceImageSource } from "@/hooks/useSourceImageSource";
 import { formatRating } from "@/utils/format";
 import type { Movie } from "@/types/movie";
 
@@ -15,11 +16,13 @@ type MovieCardLargeProps = {
 };
 
 export function MovieCardLarge({ movie, onPress }: MovieCardLargeProps) {
+  const posterSource = useSourceImageSource(movie.poster, undefined, movie.title, movie.year);
+
   return (
     <Pressable onPress={onPress} style={styles.card}>
       <Image
         contentFit="cover"
-        source={{ uri: movie.poster }}
+        source={posterSource}
         style={styles.poster}
         transition={180}
       />
@@ -70,4 +73,3 @@ const styles = StyleSheet.create({
     maxWidth: "82%",
   },
 });
-

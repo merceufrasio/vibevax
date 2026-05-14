@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useEffect, useState } from "react";
 
 import { CastList } from "@/components/movie/CastList";
 import { MovieHeader } from "@/components/movie/MovieHeader";
@@ -43,6 +43,7 @@ export default function MovieDetailScreen() {
   const { addHistory } = useWatchHistory();
   const { getMovieById } = useMovies();
   const {
+    challenge,
     clearStream,
     detail: sourceDetail,
     error: sourceError,
@@ -58,6 +59,7 @@ export default function MovieDetailScreen() {
       ? sourceDetailToMovie(sourceDetail)
       : null
     : getMovieById(id);
+
   const defaultEpisode =
     movie?.episodes.find((episode) => episode.number === movie.currentEpisode) ??
     movie?.episodes.at(-1) ??
@@ -101,16 +103,23 @@ export default function MovieDetailScreen() {
       }, [])
     : [];
 
+  const openChallenge = () => {
+    if (!challenge) {
+      return;
+    }
+
+    router.push({
+      pathname: "/source-verify",
+      params: { challengeId: challenge.id },
+    });
+  };
+
   const handleWatch = async (episodeId?: string) => {
     if (!movie) {
       return;
     }
 
-    addHistory(
-      movie,
-      selectedEpisodeLabel || movie.lastEpisodeLabel || "Đã xem",
-      sourceId,
-    );
+    addHistory(movie, selectedEpisodeLabel || movie.lastEpisodeLabel || "Đã xem", sourceId);
 
     if (isSourceMovie && episodeId) {
       await resolveStream(episodeId);
@@ -140,6 +149,13 @@ export default function MovieDetailScreen() {
             icon="film-outline"
             title="Không tìm thấy phim"
           />
+          {challenge ? (
+            <Button
+              label="Xác minh nguồn"
+              onPress={openChallenge}
+              style={styles.fallbackButton}
+            />
+          ) : null}
           <Button
             label="Quay lại"
             onPress={() => router.back()}
@@ -165,6 +181,17 @@ export default function MovieDetailScreen() {
             selectedEpisodeLabel={selectedEpisodeLabel}
           />
         )}
+
+        {challenge ? (
+          <View style={styles.challengePanel}>
+            <Text style={styles.challengeTitle}>Nguồn cần xác minh Cloudflare</Text>
+            <Text style={styles.challengeBody}>
+              Hoàn tất bước xác minh để tiếp tục tải dữ liệu hoặc phát phim từ nguồn
+              này.
+            </Text>
+            <Button label="Mở xác minh" onPress={openChallenge} size="md" />
+          </View>
+        ) : null}
 
         {groupedEpisodes.length ? (
           <View style={styles.selectorSection}>
@@ -203,9 +230,7 @@ export default function MovieDetailScreen() {
                             {item.title}
                           </Text>
                           {isResolvingStream && isActive ? (
-                            <Text style={styles.selectorCardStatus}>
-                              Đang lấy link...
-                            </Text>
+                            <Text style={styles.selectorCardStatus}>Đang lấy link...</Text>
                           ) : null}
                         </Pressable>
                       );
@@ -217,10 +242,7 @@ export default function MovieDetailScreen() {
           </View>
         ) : null}
 
-        <MovieInfo
-          movie={movie}
-          selectedEpisodeNumber={selectedEpisodeNumber}
-        />
+        <MovieInfo movie={movie} selectedEpisodeNumber={selectedEpisodeNumber} />
 
         {movie.cast.length ? (
           <View style={styles.castSection}>
@@ -291,6 +313,24 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Colors.text.primary,
     marginTop: 4,
+  },
+  challengePanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(79,209,197,0.3)",
+    backgroundColor: "rgba(79,209,197,0.08)",
+    padding: 14,
+    marginBottom: 18,
+  },
+  challengeTitle: {
+    ...Typography.cardTitle,
+    color: Colors.text.primary,
+  },
+  challengeBody: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    marginTop: 8,
+    marginBottom: 12,
   },
   castSection: {
     marginTop: 8,

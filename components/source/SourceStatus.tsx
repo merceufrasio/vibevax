@@ -11,30 +11,53 @@ type SourceStatusProps = {
   onPress?: () => void;
 };
 
+function formatSourceError(error?: string | null) {
+  if (!error) {
+    return null;
+  }
+
+  const sanitized = error
+    .replace(/^error:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!sanitized) {
+    return "Khong tai duoc nguon phim hien tai.";
+  }
+
+  if (sanitized.length <= 140) {
+    return sanitized;
+  }
+
+  return `${sanitized.slice(0, 137).trimEnd()}...`;
+}
+
 export function SourceStatus({
   sourceName,
   isLoading = false,
   error,
   onPress,
 }: SourceStatusProps) {
+  const errorMessage = formatSourceError(error);
+
   return (
     <Pressable onPress={onPress} style={styles.container}>
       <View style={styles.leading}>
         <Ionicons
-          color={error ? Colors.accent.danger : Colors.accent.primary}
-          name={error ? "alert-circle-outline" : "radio-outline"}
+          color={errorMessage ? Colors.accent.danger : Colors.accent.primary}
+          name={errorMessage ? "alert-circle-outline" : "radio-outline"}
           size={18}
         />
         <View>
           <Text style={styles.title}>
-            {sourceName ? `Nguồn: ${sourceName}` : "Nguồn phim"}
+            {sourceName ? `Nguon: ${sourceName}` : "Nguon phim"}
           </Text>
           <Text numberOfLines={2} style={styles.subtitle}>
-            {error
-              ? "Không tải được registry hoặc nguồn phim. Chạm để mở cài đặt và kiểm tra lại link JSON."
+            {errorMessage
+              ? errorMessage
               : isLoading
-                ? "Đang tải phim từ nguồn hiện tại..."
-                : "Đã sẵn sàng lấy dữ liệu thật"}
+                ? "Dang tai phim tu nguon hien tai..."
+                : "Da san sang lay du lieu that"}
           </Text>
         </View>
       </View>

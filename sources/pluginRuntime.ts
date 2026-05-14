@@ -51,7 +51,21 @@ export class LoadedPlugin {
     }
 
     const result = fn(...args);
-    return typeof result === "string" ? result : JSON.stringify(result ?? null);
+    const raw = typeof result === "string" ? result : JSON.stringify(result ?? null);
+
+    if (__DEV__ && name === "parseMovieDetail" && (raw === "null" || raw === "undefined")) {
+      const htmlArg = args[0] ?? "";
+      console.log(`[PluginRuntime:${this.item.id}:${name}:returned_null]`, {
+        htmlLen: htmlArg.length,
+        htmlHead: htmlArg.substring(0, 300),
+        htmlTail: htmlArg.substring(htmlArg.length - 200),
+        hasH1: /<h1/i.test(htmlArg),
+        hasMovieName: /movie_name/i.test(htmlArg),
+        hasHalimCfg: /halim_cfg/i.test(htmlArg),
+      });
+    }
+
+    return raw;
   }
 
   callJson<T>(name: PluginFunctionName, ...args: string[]) {

@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
+import { useSourceImageSource } from "@/hooks/useSourceImageSource";
 import type { Movie } from "@/types/movie";
 
 type MovieCardProps = {
@@ -22,13 +23,14 @@ function getEpisodePill(movie: Movie) {
 
 export function MovieCard({ movie, onPress, width = Layout.posterWidth }: MovieCardProps) {
   const posterHeight = Math.round(width * (Layout.posterHeight / Layout.posterWidth));
+  const posterSource = useSourceImageSource(movie.poster, undefined, movie.title, movie.year);
 
   return (
     <Pressable onPress={onPress} style={[styles.container, { width }]}>
       <View style={styles.posterWrap}>
         <Image
           contentFit="cover"
-          source={{ uri: movie.poster }}
+          source={posterSource}
           style={[
             styles.poster,
             {

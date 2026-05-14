@@ -2,9 +2,19 @@ import {
   cachePluginScript,
   getCachedPluginScript,
 } from "@/sources/pluginRegistry";
+import {
+  consumeVerifiedSourceHtml,
+  createSourceChallenge,
+  SourceChallengeRequiredError,
+} from "@/sources/sourceChallenge";
+import {
+  hasSourceBrowserSession,
+  requestSourceBrowserFetch,
+} from "@/sources/sourceBrowserSession";
 import { createPluginRuntime, type LoadedPlugin } from "@/sources/pluginRuntime";
 import type {
   PluginHomeSection,
+  PluginManifest,
   PluginRegistryItem,
   SourceListResponse,
   SourceMovieDetail,
@@ -43,7 +53,11 @@ type RawMovieDetail = RawListItem & {
   country?: string;
   director?: string;
   casts?: string;
+  castProfiles?: Record<string, string>;
   status?: string;
+  tmdbId?: string;
+  tmdbType?: string;
+  tmdbSeason?: number;
   servers?: SourceServer[];
 };
 
@@ -75,7 +89,11 @@ function normalizeDetail(
     country: detail.country,
     director: detail.director,
     casts: detail.casts,
+    castProfiles: detail.castProfiles,
     status: detail.status,
+    tmdbId: detail.tmdbId,
+    tmdbType: detail.tmdbType,
+    tmdbSeason: detail.tmdbSeason,
     servers: Array.isArray(detail.servers) ? detail.servers : [],
   };
 }
@@ -112,23 +130,125 @@ function normalizeStreamResult(result: StreamResult): StreamResult {
   };
 }
 
-async function fetchText(url: string, options?: RequestInit) {
+function isCloudflareChallengeHtml(html: string) {
+  return (
+    /cloudflare/i.test(html) &&
+    /verify you are human|checking your browser|xác minh/i.test(html)
+  );
+}
+
+async function fetchText(
+  url: string,
+  options?: RequestInit,
+  challengeInput?: {
+    kind: "list" | "search" | "detail" | "stream";
+    sourceId: string;
+    sourceName?: string;
+  },
+) {
+  const cachedHtml = consumeVerifiedSourceHtml(url);
+
+  if (cachedHtml) {
+    if (__DEV__) {
+      console.log("[fetchText:cached]", { url: url.substring(0, 80), len: cachedHtml.length });
+    }
+    return cachedHtml;
+  }
+
+  if (
+    challengeInput &&
+    !options &&
+    hasSourceBrowserSession(challengeInput.sourceId)
+  ) {
+    if (__DEV__) {
+      console.log("[fetchText:browserSession:attempt]", { kind: challengeInput.kind, url: url.substring(0, 80) });
+    }
+    try {
+      const browserHtml = await requestSourceBrowserFetch(
+        challengeInput.sourceId,
+        url,
+      );
+
+      if (browserHtml && !isCloudflareChallengeHtml(browserHtml)) {
+        if (__DEV__) {
+          console.log("[fetchText:browserSession:ok]", { url: url.substring(0, 80), len: browserHtml.length });
+        }
+        return browserHtml;
+      }
+
+      if (__DEV__) {
+        console.log("[fetchText:browserSession:cfDetected]", {
+          url: url.substring(0, 80),
+          len: browserHtml?.length ?? 0,
+          preview: browserHtml?.substring(0, 200),
+        });
+      }
+    } catch (browserError) {
+      if (__DEV__) {
+        console.log("[fetchText:browserSession:error]", {
+          url: url.substring(0, 80),
+          error: String(browserError),
+        });
+      }
+      // Fall back to regular fetch if the browser-backed session fails.
+    }
+  } else if (__DEV__ && challengeInput) {
+    console.log("[fetchText:noBrowserSession]", {
+      kind: challengeInput.kind,
+      sourceId: challengeInput.sourceId,
+      hasSession: hasSourceBrowserSession(challengeInput.sourceId),
+      hasOptions: !!options,
+      url: url.substring(0, 80),
+    });
+  }
+
+  if (__DEV__) {
+    console.log("[fetchText:regularFetch]", { url: url.substring(0, 80) });
+  }
+
   const response = await fetch(url, options);
+
+  const rawText = await response.text();
+
+  if (__DEV__) {
+    console.log("[fetchText:regularFetch:response]", {
+      url: url.substring(0, 80),
+      status: response.status,
+      len: rawText.length,
+      isCloudflare: isCloudflareChallengeHtml(rawText),
+    });
+  }
+
+  if (
+    challengeInput &&
+    isCloudflareChallengeHtml(rawText) &&
+    (!response.ok || /text\/html/i.test(response.headers.get("content-type") ?? ""))
+  ) {
+    throw new SourceChallengeRequiredError(
+      createSourceChallenge({
+        ...challengeInput,
+        url,
+        message: `${challengeInput.sourceName || "Nguồn này"} đang yêu cầu xác minh Cloudflare.`,
+      }),
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`Request failed ${response.status}: ${url}`);
   }
 
-  return response.text();
+  return rawText;
 }
 
 export class SourceRepository {
   readonly pluginItem: PluginRegistryItem;
   readonly plugin: LoadedPlugin;
+  readonly manifest: PluginManifest;
 
   private constructor(pluginItem: PluginRegistryItem, plugin: LoadedPlugin) {
     this.pluginItem = pluginItem;
     this.plugin = plugin;
+    this.manifest = plugin.getManifest();
   }
 
   static async create(pluginItem: PluginRegistryItem, forceRefresh = false) {
@@ -162,7 +282,11 @@ export class SourceRepository {
 
   async getList(slug: string, filters: Record<string, unknown> = {}) {
     const url = this.plugin.call("getUrlList", slug, JSON.stringify(filters));
-    const raw = await fetchText(url);
+    const raw = await fetchText(url, undefined, {
+      kind: "list",
+      sourceId: this.pluginItem.id,
+      sourceName: this.pluginItem.name,
+    });
     const parsed = this.plugin.callJson<RawListResponse>(
       "parseListResponse",
       raw,
@@ -184,7 +308,11 @@ export class SourceRepository {
 
   async search(keyword: string, filters: Record<string, unknown> = {}) {
     const url = this.plugin.call("getUrlSearch", keyword, JSON.stringify(filters));
-    const raw = await fetchText(url);
+    const raw = await fetchText(url, undefined, {
+      kind: "search",
+      sourceId: this.pluginItem.id,
+      sourceName: this.pluginItem.name,
+    });
     const parsed = this.plugin.callJson<RawListResponse>(
       "parseSearchResponse",
       raw,
@@ -206,7 +334,11 @@ export class SourceRepository {
 
   async getMovieDetail(movieId: string) {
     const url = this.plugin.call("getUrlDetail", movieId);
-    const raw = await fetchText(url);
+    const raw = await fetchText(url, undefined, {
+      kind: "detail",
+      sourceId: this.pluginItem.id,
+      sourceName: this.pluginItem.name,
+    });
     const parsed = this.plugin.callJson<RawMovieDetail | null>(
       "parseMovieDetail",
       raw,
@@ -214,14 +346,42 @@ export class SourceRepository {
     );
 
     if (!parsed) {
+      if (__DEV__) {
+        console.log("[SourceRepository:getMovieDetail:null]", {
+          sourceId: this.pluginItem.id,
+          movieId,
+          url,
+          htmlLen: raw.length,
+          htmlPreview: raw.substring(0, 500),
+          htmlTail: raw.substring(raw.length - 300),
+          hasTitle: /<h1/i.test(raw),
+          hasMovieName: /movie_name/i.test(raw),
+          hasHalimCfg: /halim_cfg/i.test(raw),
+          hasListEps: /halim-list-eps/i.test(raw),
+        });
+      }
       return null;
+    }
+
+    if (__DEV__) {
+      console.log("[SourceRepository:getMovieDetail:parsed]", {
+        sourceId: this.pluginItem.id,
+        movieId,
+        url,
+        title: parsed.title,
+        posterUrl: parsed.posterUrl,
+        serverCount: parsed.servers?.length ?? 0,
+      });
     }
 
     return normalizeDetail(this.pluginItem.id, parsed);
   }
 
   async resolveStream(episodeId: string) {
-    if (isAbsoluteUrl(episodeId)) {
+    const isReaderSource =
+      this.manifest.type === "MANGA" || this.manifest.type === "COMIC";
+
+    if (isAbsoluteUrl(episodeId) && !isReaderSource) {
       return normalizeStreamResult({
         url: episodeId,
         isEmbed: !isDirectStreamUrl(episodeId),
@@ -230,8 +390,14 @@ export class SourceRepository {
       });
     }
 
-    const detailUrl = this.plugin.call("getUrlDetail", episodeId);
-    const raw = await fetchText(detailUrl);
+    const detailUrl = isAbsoluteUrl(episodeId)
+      ? episodeId
+      : this.plugin.call("getUrlDetail", episodeId);
+    const raw = await fetchText(detailUrl, undefined, {
+      kind: "stream",
+      sourceId: this.pluginItem.id,
+      sourceName: this.pluginItem.name,
+    });
     let stream = normalizeStreamResult(
       this.plugin.callJson<StreamResult>("parseDetailResponse", raw, detailUrl),
     );
@@ -241,11 +407,19 @@ export class SourceRepository {
         break;
       }
 
-      const embedRaw = await fetchText(stream.url, {
-        method: stream.postBody ? "POST" : "GET",
-        body: stream.postBody,
-        headers: stream.headers,
-      });
+      const embedRaw = await fetchText(
+        stream.url,
+        {
+          method: stream.postBody ? "POST" : "GET",
+          body: stream.postBody,
+          headers: stream.headers,
+        },
+        {
+          kind: "stream",
+          sourceId: this.pluginItem.id,
+          sourceName: this.pluginItem.name,
+        },
+      );
 
       stream = normalizeStreamResult(
         this.plugin.callJson<StreamResult>(

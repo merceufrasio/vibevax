@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   createContext,
   useCallback,
@@ -19,6 +20,8 @@ import {
 } from "@/sources/pluginRegistry";
 import type { PluginRegistry, PluginRegistryItem } from "@/sources/types";
 
+const SHOW_ADULT_SOURCES_KEY = "@revax/sources/show-adult";
+
 type SourceSettingsContextValue = {
   registry: PluginRegistry | null;
   registryUrl: string;
@@ -27,9 +30,11 @@ type SourceSettingsContextValue = {
   isLoading: boolean;
   isRefreshing: boolean;
   error: string | null;
+  showAdultSources: boolean;
   setRegistryUrl: (url: string) => Promise<void>;
   refresh: () => Promise<void>;
   setActiveSource: (sourceId: string) => Promise<void>;
+  setShowAdultSources: (value: boolean) => Promise<void>;
   isLikelyAdultSource: (plugin: PluginRegistryItem) => boolean;
 };
 
@@ -43,6 +48,7 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAdultSources, setShowAdultSourcesState] = useState(false);
 
   const bootstrap = useCallback(async () => {
     setIsLoading(true);
@@ -52,10 +58,14 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       const nextUrl = await getRegistryUrl();
       const nextRegistry = await loadRegistry();
       const nextActiveId = await getActiveSourceId(nextRegistry);
+      const savedShowAdultSources = await AsyncStorage.getItem(
+        SHOW_ADULT_SOURCES_KEY,
+      );
 
       setRegistryUrlState(nextUrl);
       setRegistry(nextRegistry);
       setActiveSourceId(nextActiveId);
+      setShowAdultSourcesState(savedShowAdultSources === "true");
     } catch (bootstrapError) {
       setRegistry(null);
       setError(String(bootstrapError));
@@ -96,6 +106,11 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
     setActiveSourceId(sourceId);
   }, []);
 
+  const setShowAdultSources = useCallback(async (value: boolean) => {
+    await AsyncStorage.setItem(SHOW_ADULT_SOURCES_KEY, String(value));
+    setShowAdultSourcesState(value);
+  }, []);
+
   const activeSource = useMemo(
     () => registry?.plugins.find((plugin) => plugin.id === activeSourceId) ?? null,
     [activeSourceId, registry],
@@ -110,9 +125,11 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       isLoading,
       isRefreshing,
       error,
+      showAdultSources,
       setRegistryUrl: updateRegistryUrl,
       refresh,
       setActiveSource,
+      setShowAdultSources,
       isLikelyAdultSource,
     }),
     [
@@ -125,6 +142,8 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       registry,
       registryUrl,
       setActiveSource,
+      setShowAdultSources,
+      showAdultSources,
       updateRegistryUrl,
     ],
   );

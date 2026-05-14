@@ -60,6 +60,10 @@ function splitNames(value?: string) {
       (value ?? "")
         .split(",")
         .map((item) => item.trim())
+        .map((item) => {
+          const linkedNameMatch = item.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+          return linkedNameMatch ? linkedNameMatch[1].trim() : item;
+        })
         .filter(Boolean),
     ),
   );
@@ -126,7 +130,7 @@ export function sourceDetailToMovie(detail: SourceMovieDetail): Movie {
     id: `${detail.id}-cast-${index}`,
     name,
     role: index === 0 ? "Vai chính" : "Diễn viên",
-    avatar: imageOrPlaceholder(detail.sourceId, `${detail.id}-${index}`, "cast"),
+    avatar: detail.castProfiles?.[name] || "",
   }));
 
   return {
