@@ -7,7 +7,6 @@ import {
   type NativeSyntheticEvent,
   type TextInputSubmitEditingEventData,
 } from "react-native";
-import { useTranslation } from "react-i18next";
 
 import { Colors } from "@/constants/Colors";
 import { Typography } from "@/constants/Typography";
@@ -27,8 +26,6 @@ export function SearchBar({
   onChangeText,
   onSubmit,
 }: SearchBarProps) {
-  const { t } = useTranslation();
-
   return (
     <View style={styles.container}>
       <Ionicons color={Colors.text.secondary} name="search" size={18} />
@@ -38,7 +35,7 @@ export function SearchBar({
         autoFocus={autoFocus}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmit}
-        placeholder={t("search.placeholder")}
+        placeholder="Tìm phim, diễn viên, thể loại..."
         placeholderTextColor={Colors.text.muted}
         returnKeyType="search"
         style={styles.input}
@@ -75,4 +72,3 @@ const styles = StyleSheet.create({
     ...Typography.body,
   },
 });
-

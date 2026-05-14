@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -11,39 +11,130 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useTranslation } from "react-i18next";
 
 import { MovieCardLarge } from "@/components/shared/MovieCardLarge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
-import { useFavorites } from "@/hooks/useFavorites";
 import type { Movie } from "@/types/movie";
 
 type HeroCarouselProps = {
   movies: Movie[];
+  sourceId?: string;
 };
 
-export function HeroCarousel({ movies }: HeroCarouselProps) {
+type LoopMovie = {
+  key: string;
+  movie: Movie;
+};
+
+export function HeroCarousel({ movies, sourceId }: HeroCarouselProps) {
   const router = useRouter();
-  const { t } = useTranslation();
-  const { isFavorite, toggleFavorite } = useFavorites();
-  const [activeIndex, setActiveIndex] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
   const slideWidth = Layout.heroCardWidth + 24;
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  const activeMovie = useMemo(
-    () => movies[activeIndex] ?? movies[0],
-    [activeIndex, movies],
-  );
+  const loopedMovies = useMemo<LoopMovie[]>(() => {
+    if (!movies.length) {
+      return [];
+    }
 
-  const handleWebScrollEnd = (
+    if (movies.length === 1) {
+      return [{ key: `${movies[0].id}-only`, movie: movies[0] }];
+    }
+
+    const firstMovie = movies[0];
+    const lastMovie = movies[movies.length - 1];
+
+    return [
+      { key: `${lastMovie.id}-sentinel-start`, movie: lastMovie },
+      ...movies.map((movie, index) => ({
+        key: `${movie.id}-${index}`,
+        movie,
+      })),
+      { key: `${firstMovie.id}-sentinel-end`, movie: firstMovie },
+    ];
+  }, [movies]);
+
+  const activeMovie = movies[activeIndex] ?? movies[0];
+
+  useEffect(() => {
+    if (!movies.length) {
+      return;
+    }
+
+    setActiveIndex(0);
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        x: movies.length > 1 ? slideWidth : 0,
+        animated: false,
+      });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [movies, slideWidth]);
+
+  const getPageFromOffset = (offsetX: number) =>
+    Math.max(0, Math.round(offsetX / slideWidth));
+
+  const syncActiveIndex = (offsetX: number) => {
+    if (!movies.length) {
+      return 0;
+    }
+
+    if (movies.length === 1) {
+      setActiveIndex(0);
+      return 0;
+    }
+
+    const rawPage = Math.min(
+      getPageFromOffset(offsetX),
+      loopedMovies.length - 1,
+    );
+
+    if (rawPage === 0) {
+      setActiveIndex(movies.length - 1);
+      return rawPage;
+    }
+
+    if (rawPage === loopedMovies.length - 1) {
+      setActiveIndex(0);
+      return rawPage;
+    }
+
+    setActiveIndex(rawPage - 1);
+    return rawPage;
+  };
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    syncActiveIndex(event.nativeEvent.contentOffset.x);
+  };
+
+  const handleScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
-    const nextIndex = Math.round(
-      event.nativeEvent.contentOffset.x / slideWidth,
-    );
-    setActiveIndex(Math.max(0, Math.min(nextIndex, movies.length - 1)));
+    if (!movies.length || movies.length === 1) {
+      setActiveIndex(0);
+      return;
+    }
+
+    const rawPage = syncActiveIndex(event.nativeEvent.contentOffset.x);
+
+    if (rawPage === 0) {
+      scrollRef.current?.scrollTo({
+        x: movies.length * slideWidth,
+        animated: false,
+      });
+      return;
+    }
+
+    if (rawPage === loopedMovies.length - 1) {
+      scrollRef.current?.scrollTo({
+        x: slideWidth,
+        animated: false,
+      });
+    }
   };
 
   if (!activeMovie) {
@@ -69,23 +160,29 @@ export function HeroCarousel({ movies }: HeroCarouselProps) {
 
       <View style={styles.carouselWrap}>
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.webCarouselContent}
           decelerationRate="fast"
           horizontal
-          onMomentumScrollEnd={handleWebScrollEnd}
+          onMomentumScrollEnd={handleScrollEnd}
+          onScroll={handleScroll}
           pagingEnabled={false}
           showsHorizontalScrollIndicator={false}
           snapToAlignment="start"
           snapToInterval={slideWidth}
+          scrollEventThrottle={16}
         >
-          {movies.map((item) => (
-            <View key={item.id} style={styles.slide}>
+          {loopedMovies.map(({ key, movie: item }) => (
+            <View key={key} style={styles.slide}>
               <MovieCardLarge
                 movie={item}
                 onPress={() =>
                   router.push({
                     pathname: "/movie/[id]",
-                    params: { id: item.id },
+                    params: {
+                      id: item.id,
+                      ...(sourceId ? { sourceId } : {}),
+                    },
                   })
                 }
               />
@@ -109,27 +206,17 @@ export function HeroCarousel({ movies }: HeroCarouselProps) {
             icon={
               <Ionicons color={Colors.text.inverse} name="play" size={18} />
             }
-            label={t("actions.watchNow")}
+            label="Xem phim"
             onPress={() =>
               router.push({
                 pathname: "/movie/[id]",
-                params: { id: activeMovie.id },
+                params: {
+                  id: activeMovie.id,
+                  ...(sourceId ? { sourceId } : {}),
+                },
               })
             }
             style={styles.primaryButton}
-          />
-          <Button
-            icon={
-              <Ionicons
-                color={Colors.text.primary}
-                name={isFavorite(activeMovie.id) ? "heart" : "heart-outline"}
-                size={18}
-              />
-            }
-            label={t("actions.favorite")}
-            onPress={() => toggleFavorite(activeMovie.id)}
-            style={styles.secondaryButton}
-            variant="secondary"
           />
         </View>
 
@@ -157,7 +244,7 @@ const styles = StyleSheet.create({
   container: {
     minHeight: 690,
     marginHorizontal: -Layout.screenPadding,
-    paddingTop: 12,
+    paddingTop: 88,
     paddingBottom: 26,
   },
   backdrop: {
@@ -209,9 +296,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   primaryButton: {
-    flex: 1,
-  },
-  secondaryButton: {
     flex: 1,
   },
   description: {

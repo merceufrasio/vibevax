@@ -1,5 +1,4 @@
 import "react-native-gesture-handler";
-import "@/i18n";
 
 import {
   Inter_400Regular,
@@ -17,6 +16,7 @@ import {
   initialWindowMetrics,
 } from "react-native-safe-area-context";
 
+import { AppLoadingScreen } from "@/components/shared/AppLoadingScreen";
 import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
 
@@ -37,7 +37,7 @@ export default function RootLayout() {
   }, [fontError, fontsLoaded]);
 
   if (!fontsLoaded && !fontError) {
-    return null;
+    return <AppLoadingScreen />;
   }
 
   return (

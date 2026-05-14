@@ -9,4 +9,3 @@ export const genreFilters = [
   "Hài",
   "Anime",
 ] as const;
-

@@ -21,7 +21,6 @@ type EpisodeGroup = {
   label: string;
   items: Array<{
     id: string;
-    meta: string;
     title: string;
   }>;
 };
@@ -86,10 +85,6 @@ export default function MovieDetailScreen() {
         const existingGroup = groups.find((group) => group.label === groupLabel);
         const item = {
           id: episode.id,
-          meta:
-            episode.durationMinutes > 0
-              ? `${episode.durationMinutes} phút`
-              : "Sẵn sàng phát",
           title: itemTitle,
         };
 
@@ -137,7 +132,7 @@ export default function MovieDetailScreen() {
       <SafeAreaView edges={["top"]} style={styles.safeArea}>
         <View style={styles.fallback}>
           <EmptyState
-            body={sourceError ?? "Movie data is missing from the current source."}
+            body={sourceError ?? "Thiếu dữ liệu phim từ nguồn hiện tại."}
             icon="film-outline"
             title="Không tìm thấy phim"
           />
@@ -170,10 +165,6 @@ export default function MovieDetailScreen() {
         {groupedEpisodes.length ? (
           <View style={styles.selectorSection}>
             <Text style={styles.selectorTitle}>Chọn bản xem</Text>
-            <Text style={styles.selectorHint}>
-              Chạm vào một bản để phát ngay
-            </Text>
-
             <View style={styles.selectorGroups}>
               {groupedEpisodes.map((group) => (
                 <View key={group.label} style={styles.selectorGroup}>
@@ -207,16 +198,11 @@ export default function MovieDetailScreen() {
                           >
                             {item.title}
                           </Text>
-                          <Text
-                            style={[
-                              styles.selectorCardMeta,
-                              isActive ? styles.selectorCardMetaActive : null,
-                            ]}
-                          >
-                            {isResolvingStream && isActive
-                              ? "Đang lấy link..."
-                              : item.meta}
-                          </Text>
+                          {isResolvingStream && isActive ? (
+                            <Text style={styles.selectorCardStatus}>
+                              Đang lấy link...
+                            </Text>
+                          ) : null}
                         </Pressable>
                       );
                     })}
@@ -259,11 +245,6 @@ const styles = StyleSheet.create({
     ...Typography.cardTitle,
     color: Colors.text.primary,
   },
-  selectorHint: {
-    ...Typography.caption,
-    color: Colors.text.secondary,
-    marginTop: 4,
-  },
   selectorGroups: {
     gap: 12,
     marginTop: 14,
@@ -282,7 +263,7 @@ const styles = StyleSheet.create({
   },
   selectorCard: {
     minWidth: 148,
-    minHeight: 72,
+    minHeight: 58,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -302,13 +283,10 @@ const styles = StyleSheet.create({
   selectorCardTitleActive: {
     color: Colors.accent.primary,
   },
-  selectorCardMeta: {
+  selectorCardStatus: {
     ...Typography.caption,
-    color: Colors.text.secondary,
-    marginTop: 4,
-  },
-  selectorCardMetaActive: {
     color: Colors.text.primary,
+    marginTop: 4,
   },
   castSection: {
     marginTop: 8,

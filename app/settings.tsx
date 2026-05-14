@@ -30,7 +30,6 @@ export default function SettingsScreen() {
     refresh,
     registry,
     registryUrl,
-    reset,
     setActiveSource,
     setRegistryUrl,
   } = useSourceSettings();
@@ -44,7 +43,10 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <IconButton
             icon={<Ionicons color={Colors.text.primary} name="chevron-back" size={20} />}
@@ -52,7 +54,9 @@ export default function SettingsScreen() {
           />
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Nguồn phim</Text>
-            <Text style={styles.subtitle}>Đọc registry JSON và chọn plugin đang dùng.</Text>
+            <Text style={styles.subtitle}>
+              Đọc registry JSON và chọn plugin đang dùng.
+            </Text>
           </View>
         </View>
 
@@ -76,13 +80,6 @@ export default function SettingsScreen() {
               }}
               size="md"
               style={styles.actionButton}
-            />
-            <Button
-              label="Reset"
-              onPress={reset}
-              size="md"
-              style={styles.actionButton}
-              variant="outline"
             />
           </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}

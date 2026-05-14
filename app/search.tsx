@@ -3,10 +3,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { EmptyState } from "@/components/shared/EmptyState";
-import { LanguageToggle } from "@/components/shared/LanguageToggle";
 import { SearchBar } from "@/components/search/SearchBar";
 import { SearchResults } from "@/components/search/SearchResults";
 import { IconButton } from "@/components/ui/IconButton";
@@ -23,12 +21,11 @@ import type { SourceMovieItem } from "@/sources/types";
 export default function SearchScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; genre?: string }>();
-  const { t } = useTranslation();
   const { searchMovies } = useMovies();
   const { activeSource } = useSourceSettings();
   const [query, setQuery] = useState(params.q ?? "");
   const [activeGenre, setActiveGenre] = useState<string>(
-    params.genre ?? "Tất cả",
+    params.genre ?? genreFilters[0],
   );
   const [sourceResults, setSourceResults] = useState<SourceMovieItem[]>([]);
   const [isSourceSearching, setIsSourceSearching] = useState(false);
@@ -102,8 +99,8 @@ export default function SearchScreen() {
             }
             onPress={() => router.back()}
           />
-          <Text style={styles.title}>{t("search.title")}</Text>
-          <LanguageToggle />
+          <Text style={styles.title}>Tìm kiếm</Text>
+          <View style={styles.headerSpacer} />
         </View>
 
         <SearchBar
@@ -122,7 +119,7 @@ export default function SearchScreen() {
         />
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("sections.recentSearches")}</Text>
+          <Text style={styles.sectionTitle}>Tìm gần đây</Text>
           <ScrollView
             contentContainerStyle={styles.chips}
             horizontal
@@ -141,7 +138,7 @@ export default function SearchScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("search.genres")}</Text>
+          <Text style={styles.sectionTitle}>Thể loại</Text>
           <ScrollView
             contentContainerStyle={styles.chips}
             horizontal
@@ -177,9 +174,7 @@ export default function SearchScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            {t("search.results")} (
-            {sourceResults.length || results.length}
-            )
+            Kết quả ({sourceResults.length || results.length})
           </Text>
           {isSourceSearching ? (
             <Text style={styles.sourceMeta}>Đang tìm trên {activeSource?.name}</Text>
@@ -211,9 +206,9 @@ export default function SearchScreen() {
             />
           ) : (
             <EmptyState
-              body={t("search.emptyBody")}
+              body="Không tìm thấy phim phù hợp với từ khóa hiện tại."
               icon="search-outline"
-              title={t("search.emptyTitle")}
+              title="Chưa có kết quả"
             />
           )}
         </View>
@@ -236,6 +231,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 20,
+  },
+  headerSpacer: {
+    width: 42,
+    height: 42,
   },
   title: {
     ...Typography.sectionTitle,

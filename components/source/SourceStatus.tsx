@@ -29,11 +29,11 @@ export function SourceStatus({
           <Text style={styles.title}>
             {sourceName ? `Nguồn: ${sourceName}` : "Nguồn phim"}
           </Text>
-          <Text numberOfLines={1} style={styles.subtitle}>
+          <Text numberOfLines={2} style={styles.subtitle}>
             {error
-              ? "Không tải được nguồn, đang dùng dữ liệu mẫu"
+              ? "Không tải được registry hoặc nguồn phim. Chạm để mở cài đặt và kiểm tra lại link JSON."
               : isLoading
-                ? "Đang tải phim từ nguồn"
+                ? "Đang tải phim từ nguồn hiện tại..."
                 : "Đã sẵn sàng lấy dữ liệu thật"}
           </Text>
         </View>
@@ -75,4 +75,3 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
 });
-

@@ -3,30 +3,23 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { BlurView } from "expo-blur";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTranslation } from "react-i18next";
 
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
 
 const routeMeta = {
-  index: { icon: "home-outline", activeIcon: "home", labelKey: "tabs.home" },
+  index: { icon: "home-outline", activeIcon: "home", label: "Trang Chủ" },
   history: {
     icon: "time-outline",
     activeIcon: "time",
-    labelKey: "tabs.history",
-  },
-  favorites: {
-    icon: "heart-outline",
-    activeIcon: "heart",
-    labelKey: "tabs.favorites",
+    label: "Lịch sử xem",
   },
 } as const;
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { t } = useTranslation();
-  const bottomInset = Math.max(insets.bottom, 10);
+  const bottomInset = Math.max(Math.round(insets.bottom * 0.4), 6);
 
   return (
     <View style={[styles.wrap, { bottom: 2 }]}>
@@ -84,7 +77,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                   isFocused ? styles.labelActive : styles.labelInactive,
                 ]}
               >
-                {t(meta.labelKey)}
+                {meta.label}
               </Text>
             </Pressable>
           );
@@ -99,18 +92,18 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     backgroundColor: "transparent",
   },
   blur: {
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: "rgba(17,24,39,0.72)",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingTop: 10,
+    paddingHorizontal: 8,
+    paddingTop: 4,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOpacity: 0.18,
@@ -122,9 +115,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    minHeight: 54,
-    borderRadius: 16,
+    gap: 2,
+    minHeight: 42,
+    borderRadius: 12,
   },
   tabActive: {
     backgroundColor: "rgba(255,255,255,0.08)",

@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTranslation } from "react-i18next";
 
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MovieCard } from "@/components/shared/MovieCard";
@@ -13,7 +12,6 @@ import { useMovies } from "@/hooks/useMovies";
 
 export default function FavoritesScreen() {
   const router = useRouter();
-  const { t } = useTranslation();
   const { favoriteIds } = useFavorites();
   const { getMovieById } = useMovies();
 
@@ -28,8 +26,8 @@ export default function FavoritesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>{t("favorites.title")}</Text>
-          <Text style={styles.subtitle}>{t("favorites.subtitle")}</Text>
+          <Text style={styles.title}>Yêu thích</Text>
+          <Text style={styles.subtitle}>Danh sách phim bạn đã lưu lại.</Text>
         </View>
 
         {favoriteMovies.length ? (
@@ -50,9 +48,9 @@ export default function FavoritesScreen() {
           </View>
         ) : (
           <EmptyState
-            body={t("favorites.emptyBody")}
+            body="Bạn chưa thêm phim nào vào danh sách yêu thích."
             icon="heart-outline"
-            title={t("favorites.emptyTitle")}
+            title="Danh sách trống"
           />
         )}
       </ScrollView>
@@ -92,4 +90,3 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
 });
-

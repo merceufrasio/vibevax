@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/Badge";
 import { Colors } from "@/constants/Colors";
@@ -13,7 +12,6 @@ type MovieInfoProps = {
 };
 
 export function MovieInfo({ movie, selectedEpisodeNumber }: MovieInfoProps) {
-  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -29,9 +27,9 @@ export function MovieInfo({ movie, selectedEpisodeNumber }: MovieInfoProps) {
           <Badge label={movie.durationLabel} tone="outline" />
         ) : null}
         <Badge label={movie.subtitleType} tone="outline" />
-        <Badge label={`${t("meta.part")} ${movie.currentPart}`} tone="outline" />
+        <Badge label={`Phần ${movie.currentPart}`} tone="outline" />
         <Badge
-          label={`${t("meta.episode")} ${selectedEpisodeNumber ?? movie.currentEpisode}`}
+          label={`Tập ${selectedEpisodeNumber ?? movie.currentEpisode}`}
           tone="outline"
         />
       </View>
@@ -44,13 +42,13 @@ export function MovieInfo({ movie, selectedEpisodeNumber }: MovieInfoProps) {
         ))}
       </View>
 
-      <Text style={styles.heading}>{t("detail.synopsis")}</Text>
+      <Text style={styles.heading}>Nội dung</Text>
       <Text numberOfLines={expanded ? undefined : 4} style={styles.description}>
         {movie.description}
       </Text>
       <Pressable onPress={() => setExpanded((current) => !current)}>
         <Text style={styles.expandText}>
-          {expanded ? t("detail.readLess") : t("detail.readMore")}
+          {expanded ? "Thu gọn" : "Mở rộng"}
         </Text>
       </Pressable>
     </View>

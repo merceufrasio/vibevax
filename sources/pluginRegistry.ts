@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import bundledRegistry from "@/repo/plugins.json";
 import type { PluginRegistry, PluginRegistryItem } from "@/sources/types";
 
 const REGISTRY_URL_KEY = "@revax/sources/registry-url";
@@ -9,9 +8,7 @@ const ACTIVE_SOURCE_KEY = "@revax/sources/active-source";
 const SCRIPT_CACHE_PREFIX = "@revax/sources/script-cache/";
 
 export const DEFAULT_REGISTRY_URL =
-  "https://gist.githubusercontent.com/minhducle25/906a700e8817ca70728c2ecda1c4e7ec/raw/4a3f89a9b01e50ac524841763f9a006ff4f987a0/plugins1.json";
-
-export const BUNDLED_REGISTRY = bundledRegistry as PluginRegistry;
+  "https://gist.githubusercontent.com/minhducle25/906a700e8817ca70728c2ecda1c4e7ec/raw/2133b7071508b254001b66a5c1ce33c0bfb5ef6d/plugins1.json";
 
 const ADULT_SOURCE_PATTERN =
   /(missav|misskon|jav|vlxx|sextop|topxx|avdb|sayhentai)/i;
@@ -20,7 +17,7 @@ function normalizeRegistry(value: unknown): PluginRegistry {
   const registry = value as PluginRegistry;
 
   if (!registry || !Array.isArray(registry.plugins)) {
-    throw new Error("Registry JSON is missing plugins[].");
+    throw new Error("Registry JSON không hợp lệ hoặc thiếu plugins[].");
   }
 
   return {
@@ -30,6 +27,29 @@ function normalizeRegistry(value: unknown): PluginRegistry {
         Boolean(plugin?.id && plugin.name && plugin.scriptUrl),
     ),
   };
+}
+
+async function fetchRegistry(registryUrl: string) {
+  let response: Response;
+
+  try {
+    response = await fetch(registryUrl);
+  } catch {
+    throw new Error(
+      "Không tải được registry từ URL hiện tại. Vui lòng kiểm tra link JSON hoặc kết nối mạng.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Không tải được registry từ URL hiện tại (${response.status}). Vui lòng kiểm tra link JSON hoặc thử lại sau.`,
+    );
+  }
+
+  const registry = normalizeRegistry(await response.json());
+  await AsyncStorage.setItem(REGISTRY_DATA_KEY, JSON.stringify(registry));
+  await saveRegistryUrl(registryUrl);
+  return registry;
 }
 
 export function isLikelyAdultSource(plugin: PluginRegistryItem) {
@@ -52,37 +72,13 @@ export async function saveRegistryUrl(url: string) {
 }
 
 export async function loadRegistry() {
-  const cached = await AsyncStorage.getItem(REGISTRY_DATA_KEY);
-
-  if (!cached) {
-    return normalizeRegistry(BUNDLED_REGISTRY);
-  }
-
-  try {
-    return normalizeRegistry(JSON.parse(cached));
-  } catch {
-    return normalizeRegistry(BUNDLED_REGISTRY);
-  }
+  const registryUrl = await getRegistryUrl();
+  return fetchRegistry(registryUrl);
 }
 
 export async function refreshRegistry(url?: string) {
   const registryUrl = url ?? (await getRegistryUrl());
-  const response = await fetch(registryUrl);
-
-  if (!response.ok) {
-    throw new Error(`Cannot load registry (${response.status}).`);
-  }
-
-  const registry = normalizeRegistry(await response.json());
-  await AsyncStorage.setItem(REGISTRY_DATA_KEY, JSON.stringify(registry));
-  await saveRegistryUrl(registryUrl);
-  return registry;
-}
-
-export async function resetRegistry() {
-  await AsyncStorage.removeItem(REGISTRY_DATA_KEY);
-  await AsyncStorage.setItem(REGISTRY_URL_KEY, DEFAULT_REGISTRY_URL);
-  return normalizeRegistry(BUNDLED_REGISTRY);
+  return fetchRegistry(registryUrl);
 }
 
 export async function getActiveSourceId(registry: PluginRegistry) {

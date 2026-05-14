@@ -8,9 +8,9 @@
     "userInterfaceStyle": "dark",
     "icon": "./assets/images/revax-app-icon.png",
     "splash": {
-      "image": "./assets/images/revax-logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A0E17"
+      "image": "./assets/images/revax-splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#000000"
     },
     "assetBundlePatterns": [
       "assets/**/*"
@@ -22,7 +22,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/revax-app-icon.png",
-        "backgroundColor": "#0A0E17"
+        "backgroundColor": "#000000"
       },
       "package": "com.revax.mobile"
     },
@@ -35,9 +35,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0A0E17",
-          "image": "./assets/images/revax-logo.png",
-          "imageWidth": 220
+          "backgroundColor": "#000000",
+          "image": "./assets/images/revax-splash.png",
+          "resizeMode": "cover"
         }
       ],
       "expo-video",

@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useTranslation } from "react-i18next";
 
 import { EmptyState } from "@/components/shared/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
@@ -16,11 +15,10 @@ import { formatRelativeTime } from "@/utils/format";
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { t, i18n } = useTranslation();
   const { getMovieById } = useMovies();
   const { clearHistory, history } = useWatchHistory();
 
-  const locale = i18n.language.startsWith("en") ? "en" : "vi";
+  const locale = "vi";
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -30,8 +28,10 @@ export default function HistoryScreen() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>{t("history.title")}</Text>
-            <Text style={styles.subtitle}>{t("history.subtitle")}</Text>
+            <Text style={styles.title}>Lịch sử xem</Text>
+            <Text style={styles.subtitle}>
+              Tiếp tục xem nhanh từ những phim bạn đã mở gần đây.
+            </Text>
           </View>
           {history.length ? (
             <IconButton
@@ -93,9 +93,9 @@ export default function HistoryScreen() {
           </View>
         ) : (
           <EmptyState
-            body={t("history.emptyBody")}
+            body="Chưa có phim nào trong lịch sử xem."
             icon="time-outline"
-            title={t("history.emptyTitle")}
+            title="Lịch sử đang trống"
           />
         )}
       </ScrollView>
@@ -174,4 +174,3 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
 });
-

@@ -14,7 +14,6 @@ import {
   isLikelyAdultSource,
   loadRegistry,
   refreshRegistry,
-  resetRegistry,
   saveActiveSourceId,
   saveRegistryUrl,
 } from "@/sources/pluginRegistry";
@@ -30,7 +29,6 @@ type SourceSettingsContextValue = {
   error: string | null;
   setRegistryUrl: (url: string) => Promise<void>;
   refresh: () => Promise<void>;
-  reset: () => Promise<void>;
   setActiveSource: (sourceId: string) => Promise<void>;
   isLikelyAdultSource: (plugin: PluginRegistryItem) => boolean;
 };
@@ -51,16 +49,15 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      const [nextUrl, nextRegistry] = await Promise.all([
-        getRegistryUrl(),
-        loadRegistry(),
-      ]);
+      const nextUrl = await getRegistryUrl();
+      const nextRegistry = await loadRegistry();
       const nextActiveId = await getActiveSourceId(nextRegistry);
 
       setRegistryUrlState(nextUrl);
       setRegistry(nextRegistry);
       setActiveSourceId(nextActiveId);
     } catch (bootstrapError) {
+      setRegistry(null);
       setError(String(bootstrapError));
     } finally {
       setIsLoading(false);
@@ -87,30 +84,12 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       setRegistry(nextRegistry);
       setActiveSourceId(nextActiveId);
     } catch (refreshError) {
+      setRegistry(null);
       setError(String(refreshError));
     } finally {
       setIsRefreshing(false);
     }
   }, [registryUrl]);
-
-  const reset = useCallback(async () => {
-    setIsRefreshing(true);
-    setError(null);
-
-    try {
-      const nextRegistry = await resetRegistry();
-      const nextUrl = await getRegistryUrl();
-      const nextActiveId = await getActiveSourceId(nextRegistry);
-
-      setRegistry(nextRegistry);
-      setRegistryUrlState(nextUrl);
-      setActiveSourceId(nextActiveId);
-    } catch (resetError) {
-      setError(String(resetError));
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
 
   const setActiveSource = useCallback(async (sourceId: string) => {
     await saveActiveSourceId(sourceId);
@@ -133,7 +112,6 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       error,
       setRegistryUrl: updateRegistryUrl,
       refresh,
-      reset,
       setActiveSource,
       isLikelyAdultSource,
     }),
@@ -146,7 +124,6 @@ export function SourceSettingsProvider({ children }: { children: ReactNode }) {
       refresh,
       registry,
       registryUrl,
-      reset,
       setActiveSource,
       updateRegistryUrl,
     ],
@@ -170,4 +147,3 @@ export function useSourceSettings() {
 
   return context;
 }
-

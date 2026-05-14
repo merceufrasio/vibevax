@@ -12,6 +12,5 @@ export const Layout = {
   posterWidth: 138,
   posterHeight: 204,
   categoryWidth: 172,
-  tabBarHeight: 78,
+  tabBarHeight: 52,
 } as const;
-
