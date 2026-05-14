@@ -9,24 +9,33 @@ import type { Movie } from "@/types/movie";
 type MovieCardProps = {
   movie: Movie;
   onPress?: () => void;
+  width?: number;
 };
 
 function getEpisodePill(movie: Movie) {
   if (movie.totalEpisodes === 1) {
-    return movie.durationLabel;
+    return movie.durationLabel || movie.subtitleType;
   }
 
   return `${movie.subtitleType}.${movie.currentEpisode}`;
 }
 
-export function MovieCard({ movie, onPress }: MovieCardProps) {
+export function MovieCard({ movie, onPress, width = Layout.posterWidth }: MovieCardProps) {
+  const posterHeight = Math.round(width * (Layout.posterHeight / Layout.posterWidth));
+
   return (
-    <Pressable onPress={onPress} style={styles.container}>
+    <Pressable onPress={onPress} style={[styles.container, { width }]}>
       <View style={styles.posterWrap}>
         <Image
           contentFit="cover"
           source={{ uri: movie.poster }}
-          style={styles.poster}
+          style={[
+            styles.poster,
+            {
+              width,
+              height: posterHeight,
+            },
+          ]}
           transition={180}
         />
         <View style={styles.pill}>
@@ -44,9 +53,7 @@ export function MovieCard({ movie, onPress }: MovieCardProps) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    width: Layout.posterWidth,
-  },
+  container: {},
   posterWrap: {
     borderRadius: Layout.cardRadius,
     overflow: "hidden",
@@ -54,8 +61,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   poster: {
-    width: Layout.posterWidth,
-    height: Layout.posterHeight,
     borderRadius: Layout.cardRadius,
   },
   pill: {
@@ -83,4 +88,3 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
-

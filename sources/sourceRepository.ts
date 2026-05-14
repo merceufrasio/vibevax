@@ -225,6 +225,7 @@ export class SourceRepository {
       return normalizeStreamResult({
         url: episodeId,
         isEmbed: !isDirectStreamUrl(episodeId),
+        sourceId: this.pluginItem.id,
         subtitles: [],
       });
     }
@@ -255,6 +256,9 @@ export class SourceRepository {
       );
     }
 
-    return stream;
+    return {
+      ...stream,
+      sourceId: this.pluginItem.id,
+    };
   }
 }

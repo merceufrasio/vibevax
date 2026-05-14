@@ -9,14 +9,14 @@ import {
   type ReactNode,
 } from "react";
 
-import type { WatchHistoryEntry } from "@/types/movie";
+import type { Movie, WatchHistoryEntry } from "@/types/movie";
 
 const STORAGE_KEY = "@revax/watch-history";
 
 type WatchHistoryContextValue = {
   history: WatchHistoryEntry[];
   isReady: boolean;
-  addHistory: (movieId: string, progressLabel: string) => void;
+  addHistory: (movie: Movie, progressLabel: string, sourceId?: string) => void;
   removeHistory: (movieId: string) => void;
   clearHistory: () => void;
 };
@@ -55,16 +55,22 @@ export function WatchHistoryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addHistory = useCallback(
-    (movieId: string, progressLabel: string) => {
+    (movie: Movie, progressLabel: string, sourceId?: string) => {
       setHistory((currentHistory) => {
         const nextHistory = [
           {
-            movieId,
+            movieId: movie.id,
+            sourceId,
+            title: movie.title,
+            originalTitle: movie.originalTitle,
+            poster: movie.poster,
             progressLabel,
             watchedAt: new Date().toISOString(),
           },
-          ...currentHistory.filter((entry) => entry.movieId !== movieId),
-        ].slice(0, 12);
+          ...currentHistory.filter(
+            (entry) => !(entry.movieId === movie.id && entry.sourceId === sourceId),
+          ),
+        ].slice(0, 24);
 
         persist(nextHistory);
         return nextHistory;
@@ -121,4 +127,3 @@ export function useWatchHistory() {
 
   return context;
 }
-

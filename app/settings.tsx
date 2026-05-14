@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -10,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
@@ -18,6 +18,16 @@ import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
+import type { AdBlockLogEntry } from "@/sources/types";
+import { clearAdBlockLogs, loadAdBlockLogs } from "@/utils/adBlockLogger";
+
+function formatTime(value: string) {
+  try {
+    return new Date(value).toLocaleString("vi-VN");
+  } catch {
+    return value;
+  }
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -34,10 +44,19 @@ export default function SettingsScreen() {
     setRegistryUrl,
   } = useSourceSettings();
   const [draftUrl, setDraftUrl] = useState(registryUrl);
+  const [adBlockLogs, setAdBlockLogs] = useState<AdBlockLogEntry[]>([]);
+
+  const reloadLogs = async () => {
+    setAdBlockLogs(await loadAdBlockLogs());
+  };
 
   useEffect(() => {
     setDraftUrl(registryUrl);
   }, [registryUrl]);
+
+  useEffect(() => {
+    void reloadLogs();
+  }, []);
 
   const plugins = registry?.plugins ?? [];
 
@@ -129,6 +148,60 @@ export default function SettingsScreen() {
               </Pressable>
             );
           })}
+        </View>
+
+        <View style={styles.logPanel}>
+          <View style={styles.logHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Nhật ký chặn quảng cáo</Text>
+              <Text style={styles.logSubtitle}>
+                Xem các URL bị chặn để nhận diện pattern mới theo từng nguồn.
+              </Text>
+            </View>
+            <Text style={styles.count}>{adBlockLogs.length}</Text>
+          </View>
+
+          <View style={styles.actions}>
+            <Button
+              label="Làm mới log"
+              onPress={() => {
+                void reloadLogs();
+              }}
+              size="md"
+              style={styles.actionButton}
+              variant="outline"
+            />
+            <Button
+              label="Xóa log"
+              onPress={async () => {
+                await clearAdBlockLogs();
+                setAdBlockLogs([]);
+              }}
+              size="md"
+              style={styles.actionButton}
+              variant="outline"
+            />
+          </View>
+
+          {adBlockLogs.length ? (
+            <View style={styles.logList}>
+              {adBlockLogs.map((entry) => (
+                <View key={entry.id} style={styles.logItem}>
+                  <Text style={styles.logRule}>{entry.rule}</Text>
+                  <Text style={styles.logMeta}>
+                    {entry.sourceId || "unknown-source"} · {formatTime(entry.createdAt)}
+                  </Text>
+                  <Text selectable style={styles.logUrl}>
+                    {entry.url}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyLogText}>
+              Chưa có request nào bị chặn. Hãy phát thử một nguồn embed rồi quay lại đây.
+            </Text>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -281,5 +354,53 @@ const styles = StyleSheet.create({
   radioActive: {
     backgroundColor: Colors.accent.primary,
     borderColor: Colors.accent.primary,
+  },
+  logPanel: {
+    marginTop: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background.surface,
+    padding: 14,
+  },
+  logHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  logSubtitle: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    marginTop: 4,
+    maxWidth: 260,
+  },
+  logList: {
+    gap: 12,
+    marginTop: 14,
+  },
+  logItem: {
+    borderRadius: 8,
+    backgroundColor: Colors.background.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+    gap: 4,
+  },
+  logRule: {
+    ...Typography.cardTitle,
+    color: Colors.accent.primary,
+  },
+  logMeta: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+  },
+  logUrl: {
+    ...Typography.caption,
+    color: Colors.text.primary,
+  },
+  emptyLogText: {
+    ...Typography.body,
+    color: Colors.text.secondary,
+    marginTop: 14,
   },
 });

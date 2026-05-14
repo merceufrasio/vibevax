@@ -1,85 +1,179 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useMemo, useState } from "react";
 
-import { EmptyState } from "@/components/shared/EmptyState";
 import { SearchBar } from "@/components/search/SearchBar";
 import { SearchResults } from "@/components/search/SearchResults";
+import { MovieCard } from "@/components/shared/MovieCard";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { IconButton } from "@/components/ui/IconButton";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
-import { genreFilters } from "@/data/genres";
-import { useMovies } from "@/hooks/useMovies";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 import { sourceItemToMovie } from "@/sources/adapters";
 import { SourceRepository } from "@/sources/sourceRepository";
-import type { SourceMovieItem } from "@/sources/types";
+import type { PluginRegistryItem, SourceMovieItem } from "@/sources/types";
+
+const RECENT_SEARCHES_KEY = "@revax/search-recent";
+const ALL_SOURCES_SCOPE = "__all__";
+
+type SearchGroupResult = {
+  source: PluginRegistryItem;
+  items: SourceMovieItem[];
+  error?: string;
+};
+
+async function loadRecentSearches() {
+  const stored = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as string[];
+    return Array.isArray(parsed) ? parsed.filter(Boolean).slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function SearchScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string; genre?: string }>();
-  const { searchMovies } = useMovies();
-  const { activeSource } = useSourceSettings();
+  const params = useLocalSearchParams<{ q?: string }>();
+  const {
+    activeSource,
+    activeSourceId,
+    registry,
+  } = useSourceSettings();
   const [query, setQuery] = useState(params.q ?? "");
-  const [activeGenre, setActiveGenre] = useState<string>(
-    params.genre ?? genreFilters[0],
+  const [selectedSourceId, setSelectedSourceId] = useState<string>(
+    activeSourceId || ALL_SOURCES_SCOPE,
   );
-  const [sourceResults, setSourceResults] = useState<SourceMovieItem[]>([]);
-  const [isSourceSearching, setIsSourceSearching] = useState(false);
-  const [sourceSearchError, setSourceSearchError] = useState<string | null>(null);
-  const [recentSearches, setRecentSearches] = useState<string[]>([
-    "Thanh Tra Bí Mật",
-    "Project Aurora",
-    "Anime",
-  ]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [singleSourceResults, setSingleSourceResults] = useState<SourceMovieItem[]>([]);
+  const [allSourceResults, setAllSourceResults] = useState<SearchGroupResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
-  const results = useMemo(
-    () => searchMovies(query, activeGenre),
-    [activeGenre, query, searchMovies],
+  const plugins = registry?.plugins ?? [];
+  const selectedSource = useMemo(
+    () => plugins.find((plugin) => plugin.id === selectedSourceId) ?? activeSource ?? null,
+    [activeSource, plugins, selectedSourceId],
   );
+  const isAllSources = selectedSourceId === ALL_SOURCES_SCOPE;
 
-  const handleSelectRecent = (value: string) => {
-    setQuery(value);
-    void runSourceSearch(value);
-  };
+  useEffect(() => {
+    void loadRecentSearches().then(setRecentSearches);
+  }, []);
 
-  const runSourceSearch = async (value: string) => {
-    const keyword = value.trim();
-
-    if (!activeSource || !keyword) {
-      setSourceResults([]);
-      return;
+  useEffect(() => {
+    if (!selectedSourceId && activeSourceId) {
+      setSelectedSourceId(activeSourceId);
     }
+  }, [activeSourceId, selectedSourceId]);
 
-    setIsSourceSearching(true);
-    setSourceSearchError(null);
-
-    try {
-      const repository = await SourceRepository.create(activeSource);
-      const response = await repository.search(keyword, { page: 1, limit: 24 });
-      setSourceResults(response.items);
-    } catch (error) {
-      setSourceResults([]);
-      setSourceSearchError(String(error));
-    } finally {
-      setIsSourceSearching(false);
-    }
-  };
-
-  const rememberQuery = (value: string) => {
+  const rememberQuery = async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
       return;
     }
 
-    setRecentSearches((current) => [
+    const nextRecent = [
       trimmed,
-      ...current.filter((item) => item !== trimmed),
-    ].slice(0, 6));
+      ...recentSearches.filter((item) => item !== trimmed),
+    ].slice(0, 8);
+
+    setRecentSearches(nextRecent);
+    await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(nextRecent));
   };
+
+  const clearResults = () => {
+    setSingleSourceResults([]);
+    setAllSourceResults([]);
+    setSearchError(null);
+  };
+
+  const runSingleSourceSearch = async (keyword: string, source: PluginRegistryItem) => {
+    const repository = await SourceRepository.create(source);
+    const response = await repository.search(keyword, { page: 1, limit: 24 });
+    return response.items;
+  };
+
+  const runAllSourcesSearch = async (keyword: string) => {
+    const settled = await Promise.allSettled(
+      plugins.map(async (plugin) => ({
+        source: plugin,
+        items: await runSingleSourceSearch(keyword, plugin),
+      })),
+    );
+
+    return settled.map((result, index) => {
+      const source = plugins[index];
+
+      if (result.status === "fulfilled") {
+        return {
+          source,
+          items: result.value.items,
+        } satisfies SearchGroupResult;
+      }
+
+      return {
+        source,
+        items: [],
+        error: String(result.reason),
+      } satisfies SearchGroupResult;
+    });
+  };
+
+  const submitSearch = async (rawValue?: string) => {
+    const keyword = (rawValue ?? query).trim();
+
+    if (!keyword) {
+      clearResults();
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+
+    try {
+      await rememberQuery(keyword);
+
+      if (isAllSources) {
+        setSingleSourceResults([]);
+        setAllSourceResults(await runAllSourcesSearch(keyword));
+        return;
+      }
+
+      if (!selectedSource) {
+        throw new Error("Chưa có nguồn phim đang được chọn.");
+      }
+
+      setAllSourceResults([]);
+      setSingleSourceResults(await runSingleSourceSearch(keyword, selectedSource));
+    } catch (error) {
+      clearResults();
+      setSearchError(String(error));
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const hasSingleSourceResults = singleSourceResults.length > 0;
+  const hasAllSourceResults = allSourceResults.some(
+    (group) => group.items.length || group.error,
+  );
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -108,63 +202,75 @@ export default function SearchScreen() {
           onChangeText={(value) => {
             setQuery(value);
             if (!value.trim()) {
-              setSourceResults([]);
+              clearResults();
             }
           }}
           onSubmit={() => {
-            rememberQuery(query);
-            void runSourceSearch(query);
+            void submitSearch();
           }}
           value={query}
         />
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tìm gần đây</Text>
+          <Text style={styles.sectionTitle}>Nguồn tìm kiếm</Text>
           <ScrollView
-            contentContainerStyle={styles.chips}
+            contentContainerStyle={styles.scopeChips}
             horizontal
             showsHorizontalScrollIndicator={false}
           >
-            {recentSearches.map((item) => (
-              <Pressable
-                key={item}
-                onPress={() => handleSelectRecent(item)}
-                style={styles.recentChip}
+            <Pressable
+              onPress={() => setSelectedSourceId(activeSourceId || ALL_SOURCES_SCOPE)}
+              style={[
+                styles.scopeChip,
+                selectedSourceId === (activeSourceId || ALL_SOURCES_SCOPE)
+                  ? styles.scopeChipActive
+                  : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.scopeLabel,
+                  selectedSourceId === (activeSourceId || ALL_SOURCES_SCOPE)
+                    ? styles.scopeLabelActive
+                    : styles.scopeLabelInactive,
+                ]}
               >
-                <Text style={styles.recentLabel}>{item}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+                {activeSource ? `Hiện tại: ${activeSource.name}` : "Nguồn hiện tại"}
+              </Text>
+            </Pressable>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Thể loại</Text>
-          <ScrollView
-            contentContainerStyle={styles.chips}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {genreFilters.map((genre) => {
-              const isActive = activeGenre === genre;
+            <Pressable
+              onPress={() => setSelectedSourceId(ALL_SOURCES_SCOPE)}
+              style={[
+                styles.scopeChip,
+                isAllSources ? styles.scopeChipActive : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.scopeLabel,
+                  isAllSources ? styles.scopeLabelActive : styles.scopeLabelInactive,
+                ]}
+              >
+                Tất cả nguồn
+              </Text>
+            </Pressable>
 
+            {plugins.map((plugin) => {
+              const isActive = selectedSourceId === plugin.id;
               return (
                 <Pressable
-                  key={genre}
-                  onPress={() => setActiveGenre(genre)}
-                  style={[
-                    styles.filterChip,
-                    isActive ? styles.filterChipActive : null,
-                  ]}
+                  key={plugin.id}
+                  onPress={() => setSelectedSourceId(plugin.id)}
+                  style={[styles.scopeChip, isActive ? styles.scopeChipActive : null]}
                 >
                   <Text
                     style={[
-                      styles.filterLabel,
-                      isActive
-                        ? styles.filterLabelActive
-                        : styles.filterLabelInactive,
+                      styles.scopeLabel,
+                      isActive ? styles.scopeLabelActive : styles.scopeLabelInactive,
                     ]}
                   >
-                    {genre}
+                    {plugin.name}
                   </Text>
                 </Pressable>
               );
@@ -172,45 +278,144 @@ export default function SearchScreen() {
           </ScrollView>
         </View>
 
+        {recentSearches.length ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Tìm gần đây</Text>
+              <Pressable
+                onPress={async () => {
+                  setRecentSearches([]);
+                  await AsyncStorage.removeItem(RECENT_SEARCHES_KEY);
+                }}
+              >
+                <Text style={styles.clearText}>Xóa</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.recentRow}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+            >
+              {recentSearches.map((item) => (
+                <Pressable
+                  key={item}
+                  onPress={() => {
+                    setQuery(item);
+                    void submitSearch(item);
+                  }}
+                  style={styles.recentChip}
+                >
+                  <Text style={styles.recentLabel}>{item}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Kết quả ({sourceResults.length || results.length})
+            {isAllSources
+              ? `Kết quả tất cả nguồn (${allSourceResults.reduce(
+                  (total, group) => total + group.items.length,
+                  0,
+                )})`
+              : `Kết quả (${singleSourceResults.length})`}
           </Text>
-          {isSourceSearching ? (
-            <Text style={styles.sourceMeta}>Đang tìm trên {activeSource?.name}</Text>
+
+          {isSearching ? (
+            <Text style={styles.searchMeta}>
+              {isAllSources
+                ? "Đang tìm trên tất cả nguồn..."
+                : `Đang tìm trên ${selectedSource?.name ?? "nguồn hiện tại"}...`}
+            </Text>
           ) : null}
-          {sourceSearchError ? (
-            <Text style={styles.sourceError}>{sourceSearchError}</Text>
+
+          {searchError ? (
+            <Text style={styles.searchError}>{searchError}</Text>
           ) : null}
-          {sourceResults.length ? (
-            <SearchResults
-              movies={sourceResults.map(sourceItemToMovie)}
-              onPressMovie={(movie) => {
-                rememberQuery(query || movie.title);
-                router.push({
-                  pathname: "/movie/[id]",
-                  params: { id: movie.id, sourceId: activeSource?.id ?? "" },
-                });
-              }}
-            />
-          ) : results.length ? (
-            <SearchResults
-              movies={results}
-              onPressMovie={(movie) => {
-                rememberQuery(query || movie.title);
-                router.push({
-                  pathname: "/movie/[id]",
-                  params: { id: movie.id },
-                });
-              }}
-            />
-          ) : (
+
+          {!isSearching && !hasSingleSourceResults && !hasAllSourceResults && !searchError ? (
             <EmptyState
-              body="Không tìm thấy phim phù hợp với từ khóa hiện tại."
+              body="Nhập từ khóa rồi chọn nguồn để bắt đầu tìm phim."
               icon="search-outline"
               title="Chưa có kết quả"
             />
-          )}
+          ) : null}
+
+          {!isAllSources && hasSingleSourceResults ? (
+            <SearchResults
+              movies={singleSourceResults.map(sourceItemToMovie)}
+              onPressMovie={(movie) => {
+                router.push({
+                  pathname: "/movie/[id]",
+                  params: {
+                    id: movie.id,
+                    sourceId: selectedSource?.id ?? "",
+                  },
+                });
+              }}
+            />
+          ) : null}
+
+          {isAllSources && hasAllSourceResults ? (
+            <View style={styles.allSourcesList}>
+              {allSourceResults.map((group) => {
+                if (!group.items.length && !group.error) {
+                  return null;
+                }
+
+                return (
+                  <View key={group.source.id} style={styles.groupCard}>
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleWrap}>
+                        {group.source.iconUrl ? (
+                          <Image
+                            contentFit="cover"
+                            source={{ uri: group.source.iconUrl }}
+                            style={styles.groupIcon}
+                          />
+                        ) : null}
+                        <Text style={styles.groupTitle}>{group.source.name}</Text>
+                      </View>
+                      <Text style={styles.groupCount}>
+                        {group.error ? "Lỗi" : `${group.items.length} phim`}
+                      </Text>
+                    </View>
+
+                    {group.error ? (
+                      <Text style={styles.groupError}>{group.error}</Text>
+                    ) : (
+                      <ScrollView
+                        contentContainerStyle={styles.groupRow}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        {group.items.map((item) => {
+                          const movie = sourceItemToMovie(item);
+                          return (
+                            <MovieCard
+                              key={`${group.source.id}:${movie.id}`}
+                              movie={movie}
+                              onPress={() =>
+                                router.push({
+                                  pathname: "/movie/[id]",
+                                  params: {
+                                    id: movie.id,
+                                    sourceId: group.source.id,
+                                  },
+                                })
+                              }
+                              width={132}
+                            />
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -243,22 +448,50 @@ const styles = StyleSheet.create({
   section: {
     marginTop: 24,
   },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
   sectionTitle: {
     ...Typography.cardTitle,
     color: Colors.text.primary,
     marginBottom: 12,
   },
-  sourceMeta: {
-    ...Typography.caption,
+  clearText: {
+    ...Typography.body,
     color: Colors.accent.primary,
-    marginBottom: 12,
   },
-  sourceError: {
-    ...Typography.caption,
-    color: Colors.accent.danger,
-    marginBottom: 12,
+  scopeChips: {
+    gap: 10,
+    paddingRight: 20,
   },
-  chips: {
+  scopeChip: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.background.surface,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  scopeChipActive: {
+    backgroundColor: Colors.accent.primary,
+    borderColor: Colors.accent.primary,
+  },
+  scopeLabel: {
+    ...Typography.body,
+  },
+  scopeLabelActive: {
+    color: Colors.text.inverse,
+    fontFamily: "Inter_600SemiBold",
+  },
+  scopeLabelInactive: {
+    color: Colors.text.secondary,
+  },
+  recentRow: {
     gap: 10,
     paddingRight: 20,
   },
@@ -274,28 +507,59 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.text.secondary,
   },
-  filterChip: {
-    minHeight: 36,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.background.surface,
+  searchMeta: {
+    ...Typography.caption,
+    color: Colors.accent.primary,
+    marginBottom: 12,
+  },
+  searchError: {
+    ...Typography.caption,
+    color: Colors.accent.danger,
+    marginBottom: 12,
+  },
+  allSourcesList: {
+    gap: 16,
+  },
+  groupCard: {
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: Colors.border,
+    backgroundColor: Colors.background.surface,
+    padding: 14,
   },
-  filterChipActive: {
-    backgroundColor: Colors.accent.primary,
-    borderColor: Colors.accent.primary,
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
-  filterLabel: {
-    ...Typography.body,
+  groupTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
   },
-  filterLabelActive: {
-    color: Colors.text.inverse,
-    fontFamily: "Inter_600SemiBold",
+  groupIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: Colors.background.elevated,
   },
-  filterLabelInactive: {
+  groupTitle: {
+    ...Typography.cardTitle,
+    color: Colors.text.primary,
+    flex: 1,
+  },
+  groupCount: {
+    ...Typography.caption,
     color: Colors.text.secondary,
+  },
+  groupError: {
+    ...Typography.caption,
+    color: Colors.accent.danger,
+  },
+  groupRow: {
+    gap: 12,
+    paddingRight: 8,
   },
 });

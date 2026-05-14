@@ -68,7 +68,10 @@ export interface HomeSection {
 
 export interface WatchHistoryEntry {
   movieId: string;
-  watchedAt: string;
+  sourceId?: string;
+  title: string;
+  originalTitle: string;
+  poster: string;
   progressLabel: string;
+  watchedAt: string;
 }
-

@@ -9,13 +9,11 @@ import { IconButton } from "@/components/ui/IconButton";
 import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
-import { useMovies } from "@/hooks/useMovies";
 import { useWatchHistory } from "@/hooks/useWatchHistory";
 import { formatRelativeTime } from "@/utils/format";
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { getMovieById } = useMovies();
   const { clearHistory, history } = useWatchHistory();
 
   const locale = "vi";
@@ -30,7 +28,7 @@ export default function HistoryScreen() {
           <View>
             <Text style={styles.title}>Lịch sử xem</Text>
             <Text style={styles.subtitle}>
-              Tiếp tục xem nhanh từ những phim bạn đã mở gần đây.
+              Tiếp tục xem nhanh từ những phim bạn đã bấm xem gần đây.
             </Text>
           </View>
           {history.length ? (
@@ -49,47 +47,42 @@ export default function HistoryScreen() {
 
         {history.length ? (
           <View style={styles.list}>
-            {history.map((entry) => {
-              const movie = getMovieById(entry.movieId);
-
-              if (!movie) {
-                return null;
-              }
-
-              return (
-                <Pressable
-                  key={entry.movieId}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/movie/[id]",
-                      params: { id: movie.id },
-                    })
-                  }
-                  style={styles.row}
-                >
-                  <Image
-                    contentFit="cover"
-                    source={{ uri: movie.poster }}
-                    style={styles.poster}
-                    transition={120}
-                  />
-                  <View style={styles.copy}>
-                    <Text numberOfLines={1} style={styles.movieTitle}>
-                      {movie.title}
+            {history.map((entry) => (
+              <Pressable
+                key={`${entry.sourceId ?? "local"}:${entry.movieId}`}
+                onPress={() =>
+                  router.push({
+                    pathname: "/movie/[id]",
+                    params: {
+                      id: entry.movieId,
+                      ...(entry.sourceId ? { sourceId: entry.sourceId } : {}),
+                    },
+                  })
+                }
+                style={styles.row}
+              >
+                <Image
+                  contentFit="cover"
+                  source={{ uri: entry.poster }}
+                  style={styles.poster}
+                  transition={120}
+                />
+                <View style={styles.copy}>
+                  <Text numberOfLines={1} style={styles.movieTitle}>
+                    {entry.title}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.movieSubtitle}>
+                    {entry.originalTitle}
+                  </Text>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.progress}>{entry.progressLabel}</Text>
+                    <Text style={styles.time}>
+                      {formatRelativeTime(entry.watchedAt, locale)}
                     </Text>
-                    <Text numberOfLines={1} style={styles.movieSubtitle}>
-                      {movie.originalTitle}
-                    </Text>
-                    <View style={styles.metaRow}>
-                      <Text style={styles.progress}>{entry.progressLabel}</Text>
-                      <Text style={styles.time}>
-                        {formatRelativeTime(entry.watchedAt, locale)}
-                      </Text>
-                    </View>
                   </View>
-                </Pressable>
-              );
-            })}
+                </View>
+              </Pressable>
+            ))}
           </View>
         ) : (
           <EmptyState

@@ -106,7 +106,11 @@ export default function MovieDetailScreen() {
       return;
     }
 
-    addHistory(movie.id, movie.lastEpisodeLabel);
+    addHistory(
+      movie,
+      selectedEpisodeLabel || movie.lastEpisodeLabel || "Đã xem",
+      sourceId,
+    );
 
     if (isSourceMovie && episodeId) {
       await resolveStream(episodeId);

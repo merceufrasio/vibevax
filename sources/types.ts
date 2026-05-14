@@ -102,6 +102,7 @@ export type StreamResult = {
   isEmbed?: boolean;
   postBody?: string;
   mimeType?: string;
+  sourceId?: string;
   webView?: {
     allowedDomains?: string[];
     injectedJavaScript?: string;
@@ -130,3 +131,10 @@ export type PluginFunctionName =
 
 export type SourceMovieAdapter = (item: SourceMovieItem) => Movie;
 
+export type AdBlockLogEntry = {
+  id: string;
+  sourceId?: string;
+  url: string;
+  rule: string;
+  createdAt: string;
+};
