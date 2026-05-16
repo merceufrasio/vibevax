@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.1",
@@ -38,7 +39,10 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@testing-library/react-native": "^13.3.3",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "fast-check": "^4.8.0",
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.6"
   }
 }
