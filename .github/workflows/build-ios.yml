@@ -24,6 +24,10 @@ jobs:
           xcodebuild -version
           IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
           echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
+          # Download iOS platform (needed for storyboard compilation)
+          xcodebuild -downloadPlatform iOS || true
+          # If download fails, try to install via xcode-select
+          xcrun simctl list 2>/dev/null || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -149,6 +153,7 @@ jobs:
             "CODE_SIGN_IDENTITY=iPhone Distribution" \
             DEVELOPMENT_TEAM=FWU2HH6A9H \
             "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0 FOLLY_CFG_NO_COROUTINES=1" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.1 \
             -allowProvisioningUpdates
           xcodebuild -exportArchive \
             -archivePath build/ReVax.xcarchive \
