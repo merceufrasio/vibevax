@@ -61,9 +61,16 @@ jobs:
           echo "Certificate and profile installed successfully"
 
       - name: Prebuild iOS
-        run: npx expo prebuild --platform ios --clean
+        env:
+          RCT_NEW_ARCH_ENABLED: "0"
+        run: |
+          rm -rf ~/Library/Caches/CocoaPods
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          npx expo prebuild --platform ios --clean
 
       - name: Install CocoaPods
+        env:
+          RCT_NEW_ARCH_ENABLED: "0"
         run: |
           cd ios
           rm -rf Pods Podfile.lock
