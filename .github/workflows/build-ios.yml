@@ -97,13 +97,15 @@ jobs:
       - name: Patch Folly headers
         run: |
           cd ios
+          chmod -R u+w Pods/RCT-Folly/folly/
           cat > /tmp/folly_patch.py << 'PYEOF'
-          import os, re
+          import os
           patch_text = "// REVAX_PATCH\n#ifdef FOLLY_HAS_COROUTINES\n#undef FOLLY_HAS_COROUTINES\n#endif\n#define FOLLY_HAS_COROUTINES 0\n"
           for root, dirs, files in os.walk("Pods/RCT-Folly/folly"):
               for fname in files:
                   if fname in ("Expected.h", "Optional.h", "Try.h"):
                       fpath = os.path.join(root, fname)
+                      os.chmod(fpath, 0o644)
                       with open(fpath, "r") as f:
                           content = f.read()
                       if "REVAX_PATCH" not in content:
