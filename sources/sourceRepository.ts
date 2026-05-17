@@ -59,6 +59,7 @@ type RawMovieDetail = RawListItem & {
   tmdbType?: string;
   tmdbSeason?: number;
   servers?: SourceServer[];
+  qualityOptions?: Array<{ label: string; value: string }>;
 };
 
 function normalizeItem(sourceId: string, item: RawListItem) {
@@ -95,6 +96,7 @@ function normalizeDetail(
     tmdbType: detail.tmdbType,
     tmdbSeason: detail.tmdbSeason,
     servers: Array.isArray(detail.servers) ? detail.servers : [],
+    qualityOptions: Array.isArray(detail.qualityOptions) ? detail.qualityOptions : undefined,
   };
 }
 
@@ -157,16 +159,24 @@ async function fetchText(
 
   if (
     challengeInput &&
-    !options &&
     hasSourceBrowserSession(challengeInput.sourceId)
   ) {
     if (__DEV__) {
-      console.log("[fetchText:browserSession:attempt]", { kind: challengeInput.kind, url: url.substring(0, 80) });
+      console.log("[fetchText:browserSession:attempt]", { kind: challengeInput.kind, url: url.substring(0, 80), method: options?.method });
     }
     try {
+      const browserFetchOptions = options
+        ? {
+            method: (options as RequestInit).method as string | undefined,
+            body: (options as RequestInit).body as string | undefined,
+            headers: (options as RequestInit).headers as Record<string, string> | undefined,
+          }
+        : undefined;
+
       const browserHtml = await requestSourceBrowserFetch(
         challengeInput.sourceId,
         url,
+        browserFetchOptions,
       );
 
       if (browserHtml && !isCloudflareChallengeHtml(browserHtml)) {
@@ -252,22 +262,28 @@ export class SourceRepository {
   }
 
   static async create(pluginItem: PluginRegistryItem, forceRefresh = false) {
-    let script = forceRefresh ? null : await getCachedPluginScript(pluginItem);
+    let script: string | null = null;
 
-    if (!script) {
-      const response = await fetch(pluginItem.scriptUrl);
+    // Always try to fetch the latest script from network first
+    try {
+      const urlWithCacheBuster = `${pluginItem.scriptUrl}${pluginItem.scriptUrl.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      const response = await fetch(urlWithCacheBuster);
 
-      if (!response.ok) {
-        const cached = await getCachedPluginScript(pluginItem);
-        if (cached) {
-          script = cached;
-        } else {
-          throw new Error(`Cannot download plugin ${pluginItem.name}.`);
-        }
-      } else {
+      if (response.ok) {
         script = await response.text();
         await cachePluginScript(pluginItem, script);
       }
+    } catch {
+      // Network error — will fallback to cache below
+    }
+
+    // Fallback to cached script if network failed
+    if (!script) {
+      script = await getCachedPluginScript(pluginItem);
+    }
+
+    if (!script) {
+      throw new Error(`Cannot download plugin ${pluginItem.name}.`);
     }
 
     return new SourceRepository(

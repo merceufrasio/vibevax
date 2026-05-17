@@ -11,10 +11,21 @@ import {
   subscribeToSourceBrowserSessions,
 } from "@/sources/sourceBrowserSession";
 
-function buildBrowserFetchScript(requestId: string, url: string) {
+function buildBrowserFetchScript(requestId: string, url: string, options?: { method?: string; body?: string; headers?: Record<string, string> }) {
+  const fetchOptions: Record<string, unknown> = { credentials: "include" };
+  if (options?.method) {
+    fetchOptions.method = options.method;
+  }
+  if (options?.body) {
+    fetchOptions.body = options.body;
+  }
+  if (options?.headers) {
+    fetchOptions.headers = options.headers;
+  }
+
   return `
     (function () {
-      fetch(${JSON.stringify(url)}, { credentials: "include" })
+      fetch(${JSON.stringify(url)}, ${JSON.stringify(fetchOptions)})
         .then(function (response) { return response.text(); })
         .then(function (html) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -53,7 +64,7 @@ const COOKIE_EXTRACT_SCRIPT = `
 
 export function SourceBrowserSessionProvider() {
   const webViewRef = useRef<WebView>(null);
-  const pendingRequestRef = useRef<{ id: string; url: string } | null>(null);
+  const pendingRequestRef = useRef<{ id: string; url: string; options?: { method?: string; body?: string; headers?: Record<string, string> } } | null>(null);
   const [sessions, setSessions] = useState<SourceBrowserSession[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -78,11 +89,12 @@ export function SourceBrowserSessionProvider() {
       pendingRequestRef.current = {
         id: request.id,
         url: request.url,
+        options: request.options,
       };
 
       if (isReady && activeSession?.sourceId === request.sourceId) {
         webViewRef.current?.injectJavaScript(
-          buildBrowserFetchScript(request.id, request.url),
+          buildBrowserFetchScript(request.id, request.url, request.options),
         );
       }
     });
@@ -106,7 +118,7 @@ export function SourceBrowserSessionProvider() {
           const pending = pendingRequestRef.current;
           if (pending) {
             webViewRef.current?.injectJavaScript(
-              buildBrowserFetchScript(pending.id, pending.url),
+              buildBrowserFetchScript(pending.id, pending.url, pending.options),
             );
           }
         }}

@@ -83,6 +83,7 @@ export type SourceMovieDetail = SourceMovieItem & {
   tmdbType?: string;
   tmdbSeason?: number;
   servers: SourceServer[];
+  qualityOptions?: Array<{ label: string; value: string }>;
 };
 
 export type SourceListResponse = {

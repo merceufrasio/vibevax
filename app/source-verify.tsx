@@ -26,6 +26,88 @@ function buildVerificationScript(prefetchUrls: string[]) {
       }
 
       window.__REVAX_VERIFY_RUNNING__ = true;
+
+      // --- AnimeVietSub xac-minh.php auto-fill logic ---
+      if (window.location.href.indexOf("xac-minh.php") !== -1) {
+        // Already handling xac-minh.php submission monitoring
+        if (window.__REVAX_XAC_MINH_SUBMITTED__) {
+          window.__REVAX_VERIFY_RUNNING__ = false;
+          return true;
+        }
+
+        var pollStart = Date.now();
+        var pollInterval = setInterval(function () {
+          var elapsed = Date.now() - pollStart;
+          var form = document.getElementById("verify-form");
+
+          // Timeout: form not found within 3 seconds, fall back to standard behavior
+          if (!form && elapsed >= 3000) {
+            clearInterval(pollInterval);
+            window.__REVAX_VERIFY_RUNNING__ = false;
+            window.__REVAX_XAC_MINH_FALLBACK__ = true;
+            return;
+          }
+
+          if (!form) {
+            return; // Keep polling
+          }
+
+          // Form found — check all expected input fields exist
+          clearInterval(pollInterval);
+
+          var ngayNg = form.querySelector('input[name="ngay_ng"]');
+          var tiente = form.querySelector('input[name="tiente"]');
+          var quocky = form.querySelector('input[name="quocky"]');
+          var quandao = form.querySelector('input[name="quandao"]');
+          var cautho = form.querySelector('input[name="cautho"]');
+
+          if (!ngayNg || !tiente || !quocky || !quandao || !cautho) {
+            // Missing expected fields, abort auto-fill and fall back
+            window.__REVAX_VERIFY_RUNNING__ = false;
+            window.__REVAX_XAC_MINH_FALLBACK__ = true;
+            return;
+          }
+
+          // Auto-fill the form inputs
+          ngayNg.value = "20/11";
+          tiente.value = "VND";
+          quocky.value = "5";
+          quandao.value = "Vi\\u1EC7t Nam";
+          cautho.value = "B\\u00E1c H\\u1ED3";
+
+          // Click the submit button
+          var submitBtn = document.getElementById("btn-submit");
+          if (submitBtn) {
+            submitBtn.click();
+          }
+
+          // Mark as submitted and monitor for navigation away
+          window.__REVAX_XAC_MINH_SUBMITTED__ = true;
+          var submitTime = Date.now();
+
+          var navCheck = setInterval(function () {
+            // Page navigated away from xac-minh.php — success, let standard flow continue
+            if (window.location.href.indexOf("xac-minh.php") === -1) {
+              clearInterval(navCheck);
+              window.__REVAX_VERIFY_RUNNING__ = false;
+              return;
+            }
+
+            // Still on xac-minh.php after 5 seconds — treat as failed, fall back
+            if (Date.now() - submitTime >= 5000) {
+              clearInterval(navCheck);
+              window.__REVAX_XAC_MINH_SUBMITTED__ = false;
+              window.__REVAX_XAC_MINH_FALLBACK__ = true;
+              window.__REVAX_VERIFY_RUNNING__ = false;
+              return;
+            }
+          }, 300);
+        }, 200);
+
+        return true;
+      }
+      // --- End xac-minh.php auto-fill logic ---
+
       var html = document.documentElement ? document.documentElement.outerHTML : "";
       var normalized = html.toLowerCase();
       var isChallenge =

@@ -1,8 +1,10 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +21,7 @@ import { Colors } from "@/constants/Colors";
 import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
+import { DEFAULT_REGISTRY_URL } from "@/sources/pluginRegistry";
 import type { AdBlockLogEntry } from "@/sources/types";
 import { clearAdBlockLogs, loadAdBlockLogs } from "@/utils/adBlockLogger";
 
@@ -89,7 +92,13 @@ export default function SettingsScreen() {
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
-            onChangeText={setDraftUrl}
+            onChangeText={(text) => {
+              if (text === "3117") {
+                setDraftUrl(DEFAULT_REGISTRY_URL);
+              } else {
+                setDraftUrl(text);
+              }
+            }}
             placeholder="https://.../plugins.json"
             placeholderTextColor={Colors.text.muted}
             style={styles.input}
@@ -173,6 +182,41 @@ export default function SettingsScreen() {
               </Pressable>
             );
           })}
+        </View>
+
+        <View style={styles.logPanel}>
+          <View style={styles.logHeader}>
+            <View style={styles.logHeaderCopy}>
+              <Text style={styles.sectionTitle}>Bộ nhớ đệm (Cache)</Text>
+              <Text style={styles.logSubtitle}>
+                Xóa cache hình ảnh và dữ liệu tạm thời của ứng dụng để giải phóng dung lượng.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.actions}>
+            <Button
+              label="Xóa bộ nhớ đệm"
+              onPress={async () => {
+                try {
+                  await Image.clearDiskCache();
+                  await Image.clearMemoryCache();
+                  
+                  const keys = await AsyncStorage.getAllKeys();
+                  const pluginKeys = keys.filter(k => k.startsWith("@revax/sources/script-cache/"));
+                  if (pluginKeys.length > 0) {
+                    await AsyncStorage.multiRemove(pluginKeys);
+                  }
+                  
+                  Alert.alert("Thành công", "Đã xóa bộ nhớ đệm hình ảnh và cache plugin.");
+                } catch (e) {
+                  Alert.alert("Lỗi", "Không thể xóa bộ nhớ đệm.");
+                }
+              }}
+              size="md"
+              style={styles.actionButton}
+              variant="outline"
+            />
+          </View>
         </View>
 
         <View style={styles.logPanel}>

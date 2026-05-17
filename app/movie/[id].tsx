@@ -69,6 +69,18 @@ export default function MovieDetailScreen() {
     defaultEpisodeId,
   );
 
+  // Quality selector state (for plugins that provide qualityOptions)
+  const qualityOptions = sourceDetail?.qualityOptions;
+  const [selectedQuality, setSelectedQuality] = useState<string>(
+    qualityOptions?.[0]?.value ?? "",
+  );
+
+  useEffect(() => {
+    if (qualityOptions?.length && !selectedQuality) {
+      setSelectedQuality(qualityOptions[0].value);
+    }
+  }, [qualityOptions, selectedQuality]);
+
   useEffect(() => {
     setSelectedEpisodeId(defaultEpisodeId);
   }, [defaultEpisodeId, movie?.id]);
@@ -122,7 +134,16 @@ export default function MovieDetailScreen() {
     addHistory(movie, selectedEpisodeLabel || movie.lastEpisodeLabel || "Đã xem", sourceId);
 
     if (isSourceMovie && episodeId) {
-      await resolveStream(episodeId);
+      // Swap quality type in the episode ID (4th segment: slug|postId|svId|type)
+      let resolvedId = episodeId;
+      if (selectedQuality) {
+        const parts = episodeId.split("|");
+        if (parts.length >= 4) {
+          parts[3] = selectedQuality;
+          resolvedId = parts.join("|");
+        }
+      }
+      await resolveStream(resolvedId);
     }
   };
 
@@ -196,6 +217,38 @@ export default function MovieDetailScreen() {
         {groupedEpisodes.length ? (
           <View style={styles.selectorSection}>
             <Text style={styles.selectorTitle}>Chọn bản xem</Text>
+
+            {qualityOptions && qualityOptions.length > 1 ? (
+              <ScrollView
+                contentContainerStyle={styles.qualityRow}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.qualityScroll}
+              >
+                {qualityOptions.map((opt) => {
+                  const isQActive = opt.value === selectedQuality;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setSelectedQuality(opt.value)}
+                      style={[
+                        styles.qualityChip,
+                        isQActive ? styles.qualityChipActive : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.qualityChipText,
+                          isQActive ? styles.qualityChipTextActive : null,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
             <View style={styles.selectorGroups}>
               {groupedEpisodes.map((group) => (
                 <View key={group.label} style={styles.selectorGroup}>
@@ -348,5 +401,33 @@ const styles = StyleSheet.create({
   fallbackButton: {
     marginTop: 24,
     alignSelf: "center",
+  },
+  qualityScroll: {
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  qualityRow: {
+    gap: 8,
+    paddingRight: 12,
+  },
+  qualityChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: Colors.background.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  qualityChipActive: {
+    backgroundColor: "rgba(79,209,197,0.15)",
+    borderColor: Colors.accent.primary,
+  },
+  qualityChipText: {
+    ...Typography.caption,
+    color: Colors.text.secondary,
+    fontFamily: "Inter_600SemiBold",
+  },
+  qualityChipTextActive: {
+    color: Colors.accent.primary,
   },
 });

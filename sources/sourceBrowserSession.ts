@@ -9,6 +9,7 @@ type BrowserFetchRequest = {
   id: string;
   sourceId: string;
   url: string;
+  options?: BrowserFetchOptions;
 };
 type BrowserFetchListener = (request: BrowserFetchRequest) => void;
 
@@ -80,9 +81,11 @@ export function subscribeToSourceBrowserFetches(listener: BrowserFetchListener) 
   };
 }
 
+export type BrowserFetchOptions = { method?: string; body?: string; headers?: Record<string, string> };
+
 const BROWSER_FETCH_TIMEOUT_MS = 15_000;
 
-export function requestSourceBrowserFetch(sourceId: string, url: string) {
+export function requestSourceBrowserFetch(sourceId: string, url: string, options?: BrowserFetchOptions) {
   if (!sessions.has(sourceId)) {
     return Promise.reject(new Error(`No browser session for source ${sourceId}.`));
   }
@@ -90,7 +93,7 @@ export function requestSourceBrowserFetch(sourceId: string, url: string) {
   const requestId = `${sourceId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 
   if (__DEV__) {
-    console.log("[browserFetch:request]", { requestId: requestId.slice(-12), sourceId, url: url.substring(0, 80) });
+    console.log("[browserFetch:request]", { requestId: requestId.slice(-12), sourceId, url: url.substring(0, 80), method: options?.method });
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -126,6 +129,7 @@ export function requestSourceBrowserFetch(sourceId: string, url: string) {
       id: requestId,
       sourceId,
       url,
+      options,
     });
   });
 }
