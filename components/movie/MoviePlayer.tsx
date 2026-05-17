@@ -695,7 +695,9 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 }
               }, 1000);
 
-              // Aggressive fullscreen: once video is playing, force native fullscreen
+              // Aggressive fullscreen: keep video playing inline in landscape WebView
+              // Do NOT call webkitEnterFullscreen() as it opens native player in portrait.
+              // Instead, make the video fill the entire WebView which is already landscape.
               var fsAttempts = 0;
               var fsInterval = setInterval(function() {
                 fsAttempts++;
@@ -704,15 +706,19 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 for (var vi = 0; vi < videos.length; vi++) {
                   var v = videos[vi];
                   if (!v.paused && v.readyState >= 2) {
-                    v.removeAttribute('playsinline');
-                    v.removeAttribute('webkit-playsinline');
-                    try {
-                      if (v.webkitEnterFullscreen) {
-                        v.webkitEnterFullscreen();
-                        logToRN('[Fullscreen] Forced native fullscreen');
-                        clearInterval(fsInterval);
-                      }
-                    } catch(e) {}
+                    // Ensure video stays inline and fills the screen
+                    v.setAttribute('playsinline', '');
+                    v.setAttribute('webkit-playsinline', '');
+                    v.style.width = '100vw';
+                    v.style.height = '100vh';
+                    v.style.objectFit = 'contain';
+                    v.style.position = 'fixed';
+                    v.style.top = '0';
+                    v.style.left = '0';
+                    v.style.zIndex = '99999';
+                    v.style.background = '#000';
+                    logToRN('[Fullscreen] Video expanded to fill WebView');
+                    clearInterval(fsInterval);
                     break;
                   }
                 }
