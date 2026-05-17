@@ -550,44 +550,6 @@ export function MoviePlayer({ stream, onClose }: Props) {
               if (window.__avs_reload_checked) return;
               window.__avs_reload_checked = true;
 
-              // === Prevent native iOS player from opening ===
-              // Override webkitEnterFullscreen to keep video inline (already landscape fullscreen)
-              var preventNativeFS = function() {
-                var videos = document.querySelectorAll('video');
-                videos.forEach(function(v) {
-                  if (v.__revax_patched) return;
-                  v.__revax_patched = true;
-                  v.webkitEnterFullscreen = function() {};
-                  v.webkitEnterFullScreen = function() {};
-                  // Also set playsinline attribute
-                  v.setAttribute('playsinline', '');
-                  v.setAttribute('webkit-playsinline', '');
-                });
-              };
-              preventNativeFS();
-              var nfsObserver = new MutationObserver(function() { preventNativeFS(); });
-              nfsObserver.observe(document.documentElement || document, { childList: true, subtree: true });
-
-              // Hide native fullscreen button via CSS
-              var fsStyle = document.createElement('style');
-              fsStyle.textContent = 'video::-webkit-media-controls-fullscreen-button { display: none !important; }';
-              (document.head || document.documentElement).appendChild(fsStyle);
-
-              // Auto-reload for storage.googleapiscdn.com CF challenge
-              var isBlocked = document.title === 'Truy cập bị chặn' ||
-                document.title === 'Just a moment...' ||
-                document.querySelector('.btn[href*="reload"]') ||
-                (document.body && document.body.innerText && document.body.innerText.indexOf('Truy cập bị chặn') !== -1) ||
-                (document.body && document.body.innerText && document.body.innerText.indexOf('Không thể phát video') !== -1) ||
-                (document.body && document.body.innerText && document.body.innerText.indexOf('trang web được ủy quyền') !== -1);
-
-              if (isBlocked) {
-                // Replace ugly error page with a nice loading message
-                document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#000;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;"><div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.2);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div><div style="font-size:14px;opacity:0.9;">Đang kết nối tới server...</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
-                setTimeout(function() { window.location.reload(); }, 1200);
-                return;
-              }
-
               // Log player state for debugging
               var logToRN = function(msg) {
                 try {
@@ -599,6 +561,109 @@ export function MoviePlayer({ stream, onClose }: Props) {
               };
 
               logToRN('Page loaded: ' + document.title);
+
+              // Auto-reload for storage.googleapiscdn.com CF challenge
+              var isBlocked = document.title === 'Truy cập bị chặn' ||
+                document.title === 'Just a moment...' ||
+                document.querySelector('.btn[href*="reload"]') ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('Truy cập bị chặn') !== -1) ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('Không thể phát video') !== -1) ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('trang web được ủy quyền') !== -1);
+
+              if (isBlocked) {
+                document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#000;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;"><div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.2);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div><div style="font-size:14px;opacity:0.9;">Đang kết nối tới server...</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+                setTimeout(function() { window.location.reload(); }, 1200);
+                return;
+              }
+
+              // === Auto-play + Auto-fullscreen native iOS player ===
+              // Strategy: find video element, play it, then call webkitEnterFullscreen
+              var autoFSDone = false;
+              var autoFSAttempts = 0;
+
+              function tryAutoPlayAndFullscreen() {
+                autoFSAttempts++;
+                if (autoFSDone || autoFSAttempts > 30) return;
+
+                // Search for video elements in main document
+                var videos = document.querySelectorAll('video');
+                logToRN('[AutoFS] Attempt ' + autoFSAttempts + ', found ' + videos.length + ' video(s) in main doc');
+
+                // Also search inside iframes (same-origin only)
+                var iframes = document.querySelectorAll('iframe');
+                iframes.forEach(function(iframe, idx) {
+                  try {
+                    var iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    var iVideos = iDoc.querySelectorAll('video');
+                    logToRN('[AutoFS] iframe[' + idx + '] has ' + iVideos.length + ' video(s)');
+                    iVideos.forEach(function(v) { videos = Array.from(videos).concat(v); });
+                  } catch(e) {
+                    logToRN('[AutoFS] iframe[' + idx + '] cross-origin, skipped');
+                  }
+                });
+
+                var allVideos = Array.from(videos);
+                if (allVideos.length === 0) return;
+
+                allVideos.forEach(function(v, idx) {
+                  if (autoFSDone) return;
+
+                  logToRN('[AutoFS] video[' + idx + '] readyState=' + v.readyState + ' paused=' + v.paused + ' src=' + (v.src || v.currentSrc || '').substring(0, 80));
+
+                  // Remove playsinline to allow native fullscreen
+                  v.removeAttribute('playsinline');
+                  v.removeAttribute('webkit-playsinline');
+
+                  // Listen for playing event to trigger fullscreen
+                  v.addEventListener('playing', function onPlaying() {
+                    if (autoFSDone) return;
+                    autoFSDone = true;
+                    logToRN('[AutoFS] video[' + idx + '] is playing! Calling webkitEnterFullscreen...');
+
+                    // Small delay to ensure video is rendering
+                    setTimeout(function() {
+                      try {
+                        if (v.webkitEnterFullscreen) {
+                          v.webkitEnterFullscreen();
+                          logToRN('[AutoFS] webkitEnterFullscreen() called successfully');
+                        } else if (v.webkitEnterFullScreen) {
+                          v.webkitEnterFullScreen();
+                          logToRN('[AutoFS] webkitEnterFullScreen() called successfully');
+                        } else {
+                          logToRN('[AutoFS] No webkitEnterFullscreen method available');
+                        }
+                      } catch(e) {
+                        logToRN('[AutoFS] Error calling fullscreen: ' + e.message);
+                      }
+                    }, 300);
+                  }, { once: true });
+
+                  // Try to play the video if paused
+                  if (v.paused && v.readyState >= 2) {
+                    logToRN('[AutoFS] video[' + idx + '] is paused with data, calling play()...');
+                    v.play().then(function() {
+                      logToRN('[AutoFS] video[' + idx + '] play() resolved');
+                    }).catch(function(e) {
+                      logToRN('[AutoFS] video[' + idx + '] play() rejected: ' + e.message);
+                    });
+                  }
+                });
+              }
+
+              // Poll for video elements (they may load dynamically)
+              var autoFSInterval = setInterval(function() {
+                tryAutoPlayAndFullscreen();
+                if (autoFSDone || autoFSAttempts > 30) {
+                  clearInterval(autoFSInterval);
+                  if (!autoFSDone) logToRN('[AutoFS] Gave up after 30 attempts');
+                }
+              }, 1000);
+
+              // Also observe DOM for new video elements
+              var videoObserver = new MutationObserver(function() {
+                if (!autoFSDone) tryAutoPlayAndFullscreen();
+              });
+              videoObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
               // === Block pause overlay ads (min88, sin88, etc.) ===
               // Hide any overlay/modal that appears on pause
