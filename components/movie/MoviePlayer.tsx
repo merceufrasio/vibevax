@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useMemo, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Image, Platform, StatusBar, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -44,6 +45,12 @@ const SOURCE_SPECIFIC_BLOCK_RULES: Record<string, BlockRule[]> = {
       pattern: /^https?:\/\/raw\.githubusercontent\.com\/hiller1233456\/.+/i,
     },
   ],
+  animevietsub: [
+    {
+      id: "avs-gambling-ads",
+      pattern: /(?:min88|sin88|yo88|hitclub|gemwin|sunwin|go88|rik88|iwin|b52club|ta88)/i,
+    },
+  ],
 };
 
 function normalizeHostname(value: string) {
@@ -65,6 +72,17 @@ function getAllowedHosts(stream: StreamResult) {
       hosts.add(normalized);
     }
   });
+
+  // Allow the Referer/Origin domains so inline HTML pages (iframe wrappers)
+  // are not blocked by onShouldStartLoadWithRequest on initial load.
+  for (const key of ["Referer", "Origin"] as const) {
+    const headerValue = stream.headers?.[key];
+    if (headerValue) {
+      try {
+        hosts.add(normalizeHostname(new URL(headerValue).hostname));
+      } catch {}
+    }
+  }
 
   return hosts;
 }
@@ -350,8 +368,24 @@ export function MoviePlayer({ stream, onClose }: Props) {
     p.play();
   });
 
+  // Lock to landscape when player mounts, restore portrait on unmount
+  useEffect(() => {
+    StatusBar.setHidden(true, "fade");
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+
+    return () => {
+      StatusBar.setHidden(false, "fade");
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+    };
+  }, []);
+
+  const handleClose = () => {
+    StatusBar.setHidden(false, "fade");
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).then(onClose);
+  };
+
   return (
-    <View style={[styles.container, isImageGallery ? styles.galleryContainer : null]}>
+    <View style={[styles.container, isImageGallery ? styles.galleryContainer : styles.fullscreenContainer]}>
       {isImageGallery ? (
         <View style={styles.galleryList}>
           {stream.images?.map((imageUrl) => (
@@ -389,12 +423,66 @@ export function MoviePlayer({ stream, onClose }: Props) {
         </View>
       ) : isEmbed ? (
         <WebView
-          allowsInlineMediaPlayback={false}
-          injectedJavaScript={stream.webView?.injectedJavaScript}
-          injectedJavaScriptBeforeContentLoaded={buildBlockedRequestScript(
-            stream,
-            blockRules,
-          )}
+          allowsFullScreen
+          allowsInlineMediaPlayback
+          injectedJavaScriptBeforeContentLoaded={
+            // Skip ad-block for storage.googleapiscdn.com — JW Player needs
+            // its own resources to load without interference
+            stream.url.indexOf("storage.googleapiscdn.com") !== -1
+              ? `(function(){
+                  // === 1. Disable Service Worker to prevent reload loops ===
+                  // iOS WKWebView doesn't support SW anyway, but the inline
+                  // script checks for it and triggers a reload if version mismatches
+                  if ('serviceWorker' in navigator) {
+                    Object.defineProperty(navigator, 'serviceWorker', {
+                      get: function() { return undefined; },
+                      configurable: true
+                    });
+                  }
+                  if ('caches' in window) {
+                    Object.defineProperty(window, 'caches', {
+                      get: function() { return undefined; },
+                      configurable: true
+                    });
+                  }
+
+                  // === 2. Skip SW version check ===
+                  try {
+                    var origGetItem = sessionStorage.getItem;
+                    var origSetItem = sessionStorage.setItem;
+                    sessionStorage.getItem = function(key) {
+                      if (key === 'avs_sw_v') return '1.3.7';
+                      return origGetItem.call(sessionStorage, key);
+                    };
+                    sessionStorage.setItem = function(key, val) {
+                      if (key === 'avs_sw_v') return;
+                      return origSetItem.call(sessionStorage, key, val);
+                    };
+                  } catch(e) {}
+
+                  // === 3. Force plain mode ===
+                  // iOS WKWebView has no Service Worker support, so encrypted
+                  // segments can't be decrypted via SW intercept.
+                  // Setting _avsCryptoSupported=false tells init.js to request
+                  // ?plain=1 (unencrypted segments) from the server.
+                  window._avsCryptoSupported = false;
+                  // Also override the detection that runs in the page
+                  Object.defineProperty(window, 'crypto', {
+                    value: undefined,
+                    writable: false,
+                    configurable: true
+                  });
+
+                  // === 4. Neutralize ads if any are configured ===
+                  window.google_ima_available = false;
+                  Object.defineProperty(window, 'google', {
+                    value: undefined,
+                    writable: true,
+                    configurable: true
+                  });
+                })(); true;`
+              : buildBlockedRequestScript(stream, blockRules)
+          }
           javaScriptCanOpenWindowsAutomatically={false}
           mediaPlaybackRequiresUserAction={false}
           onMessage={(event) => {
@@ -404,7 +492,12 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 sourceId?: string;
                 url?: string;
                 rule?: string;
+                message?: string;
               };
+
+              if (payload.type === "avs-debug" && __DEV__) {
+                console.log("[WebView:avs-debug]", payload.message);
+              }
 
               if (
                 payload.type === "ad-block-log" &&
@@ -441,7 +534,124 @@ export function MoviePlayer({ stream, onClose }: Props) {
             return isAllowed;
           }}
           setSupportMultipleWindows={false}
-          source={{ uri: stream.url, headers: stream.headers }}
+          sharedCookiesEnabled
+          thirdPartyCookiesEnabled
+          source={
+            stream.url.indexOf("storage.googleapiscdn.com") !== -1
+              ? { uri: stream.url }
+              : {
+                  html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${stream.url}" referrerpolicy="unsafe-url" allowfullscreen allow="autoplay;fullscreen;encrypted-media"></iframe></body></html>`,
+                  baseUrl: stream.headers?.Referer || "https://hhpanda.st/",
+                }
+          }
+          injectedJavaScript={`
+            ${stream.webView?.injectedJavaScript || ""}
+            (function() {
+              if (window.__avs_reload_checked) return;
+              window.__avs_reload_checked = true;
+
+              // Auto-reload for storage.googleapiscdn.com CF challenge
+              var isBlocked = document.title === 'Truy cập bị chặn' ||
+                document.title === 'Just a moment...' ||
+                document.querySelector('.btn[href*="reload"]') ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('Truy cập bị chặn') !== -1) ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('Không thể phát video') !== -1) ||
+                (document.body && document.body.innerText && document.body.innerText.indexOf('trang web được ủy quyền') !== -1);
+
+              if (isBlocked) {
+                // Replace ugly error page with a nice loading message
+                document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#000;color:#fff;font-family:-apple-system,sans-serif;text-align:center;padding:20px;"><div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.2);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div><div style="font-size:14px;opacity:0.9;">Đang kết nối tới server...</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+                setTimeout(function() { window.location.reload(); }, 1200);
+                return;
+              }
+
+              // Log player state for debugging
+              var logToRN = function(msg) {
+                try {
+                  window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'avs-debug',
+                    message: msg
+                  }));
+                } catch(e) {}
+              };
+
+              logToRN('Page loaded: ' + document.title);
+
+              // === Block pause overlay ads (min88, sin88, etc.) ===
+              // Hide any overlay/modal that appears on pause
+              var adStyle = document.createElement('style');
+              adStyle.textContent = '#invideo_wrapper, .jw-plugin-pause, [id*="invideo"], [class*="invideo"], [id*="pause-ad"], .pause-overlay-ad { display:none!important; visibility:hidden!important; pointer-events:none!important; width:0!important; height:0!important; overflow:hidden!important; }';
+              document.head.appendChild(adStyle);
+
+              // MutationObserver to catch dynamically added pause ads
+              var adObserver = new MutationObserver(function(mutations) {
+                mutations.forEach(function(m) {
+                  m.addedNodes.forEach(function(node) {
+                    if (!node || !node.querySelector) return;
+                    // Check if it contains ad links (min88, sin88, casino, etc.)
+                    var html = node.innerHTML || '';
+                    if (html.indexOf('min88') !== -1 || html.indexOf('sin88') !== -1 ||
+                        html.indexOf('casino') !== -1 || html.indexOf('invideo') !== -1 ||
+                        html.indexOf('yo88') !== -1 || html.indexOf('hitclub') !== -1 ||
+                        html.indexOf('gemwin') !== -1) {
+                      node.style.display = 'none';
+                      node.style.visibility = 'hidden';
+                      node.remove();
+                      logToRN('Blocked pause ad overlay');
+                    }
+                  });
+                });
+              });
+              adObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+              // Monitor JW Player for errors and auto-recover
+              var fixAttempts = 0;
+              var fixInterval = setInterval(function() {
+                fixAttempts++;
+                if (fixAttempts > 60) { clearInterval(fixInterval); return; }
+                try {
+                  var p = typeof jwplayer !== 'undefined' && jwplayer('player');
+                  if (!p || !p.getState) return;
+
+                  var state = p.getState();
+
+                  if (fixAttempts === 1 || state === 'error') {
+                    logToRN('JWPlayer state: ' + state + ' (attempt ' + fixAttempts + ')');
+                  }
+
+                  // If player errors, try to re-setup without ads
+                  if (state === 'error') {
+                    var playlist = p.getPlaylist();
+                    if (playlist && playlist.length > 0) {
+                      var item = playlist[0];
+                      var src = item.file || (item.sources && item.sources[0] && item.sources[0].file);
+                      if (src) {
+                        logToRN('Recovering with source: ' + src.substring(0, 100));
+                        clearInterval(fixInterval);
+                        p.setup({
+                          file: src,
+                          width: '100%',
+                          height: '100%',
+                          autostart: true,
+                          mute: false,
+                          primary: 'html5'
+                        });
+                      }
+                    }
+                  }
+
+                  // If player is playing, we're good
+                  if (state === 'playing' || state === 'buffering') {
+                    logToRN('Player is playing!');
+                    clearInterval(fixInterval);
+                  }
+                } catch(e) {
+                  if (fixAttempts <= 3) logToRN('Error: ' + e.message);
+                }
+              }, 1000);
+            })();
+            true;
+          `}
           style={styles.webview}
         />
       ) : (
@@ -458,7 +668,7 @@ export function MoviePlayer({ stream, onClose }: Props) {
       <View style={styles.backButton}>
         <IconButton
           icon={<Ionicons color="#FFF" name="chevron-back" size={24} />}
-          onPress={onClose}
+          onPress={handleClose}
           style={styles.iconButton}
         />
       </View>
@@ -472,6 +682,17 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     backgroundColor: "#000",
     position: "relative",
+  },
+  fullscreenContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
+    aspectRatio: undefined,
+    zIndex: 999,
   },
   galleryContainer: {
     aspectRatio: undefined,
