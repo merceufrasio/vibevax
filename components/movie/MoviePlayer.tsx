@@ -726,9 +726,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
               // then call webkitEnterFullscreen(). Native iOS player will display in landscape
               // for landscape videos (16:9). When user exits, we re-lock to portrait.
               var fsAttempts = 0;
+              var fsDone = false;
               var fsInterval = setInterval(function() {
                 fsAttempts++;
-                if (fsAttempts > 20) { clearInterval(fsInterval); return; }
+                if (fsAttempts > 60 || fsDone) { clearInterval(fsInterval); return; }
                 var videos = document.querySelectorAll('video');
                 for (var vi = 0; vi < videos.length; vi++) {
                   var v = videos[vi];
@@ -739,7 +740,6 @@ export function MoviePlayer({ stream, onClose }: Props) {
                     // Listen for fullscreen events to notify React Native
                     v.addEventListener('webkitbeginfullscreen', function() {
                       logToRN('[Fullscreen] Native fullscreen started');
-                      // Post message to RN to unlock orientation for native player
                       try {
                         window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
                           type: 'orientation-unlock'
@@ -748,7 +748,6 @@ export function MoviePlayer({ stream, onClose }: Props) {
                     });
                     v.addEventListener('webkitendfullscreen', function() {
                       logToRN('[Fullscreen] Native fullscreen ended');
-                      // Post message to RN to re-lock portrait
                       try {
                         window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
                           type: 'orientation-lock-portrait'
@@ -760,6 +759,7 @@ export function MoviePlayer({ stream, onClose }: Props) {
                       if (v.webkitEnterFullscreen) {
                         v.webkitEnterFullscreen();
                         logToRN('[Fullscreen] Forced native fullscreen');
+                        fsDone = true;
                         clearInterval(fsInterval);
                       }
                     } catch(e) {
@@ -768,7 +768,33 @@ export function MoviePlayer({ stream, onClose }: Props) {
                     break;
                   }
                 }
-              }, 1500);
+              }, 1000);
+
+              // Also listen for any video play event (covers user manual play)
+              var videoObserver = new MutationObserver(function() {
+                if (fsDone) return;
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                  if (v.__fsListenerAdded) return;
+                  v.__fsListenerAdded = true;
+                  v.addEventListener('playing', function() {
+                    if (fsDone) return;
+                    setTimeout(function() {
+                      v.removeAttribute('playsinline');
+                      v.removeAttribute('webkit-playsinline');
+                      try {
+                        if (v.webkitEnterFullscreen) {
+                          v.webkitEnterFullscreen();
+                          logToRN('[Fullscreen] Native fullscreen via play event');
+                          fsDone = true;
+                          clearInterval(fsInterval);
+                        }
+                      } catch(e) {}
+                    }, 500);
+                  });
+                });
+              });
+              videoObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
 
               // Also try on DOM changes
               var playObserver = new MutationObserver(function() {
