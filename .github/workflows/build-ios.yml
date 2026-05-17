@@ -97,56 +97,43 @@ jobs:
       - name: Patch Folly headers
         run: |
           cd ios
-          chmod -R u+w Pods/ 2>/dev/null || true
-          cat > /tmp/folly_patch.py << 'PYEOF'
-          import os, stat
-
-          targets = ("Expected.h", "Optional.h", "Try.h")
-          patched = []
-
-          for root, dirs, files in os.walk("Pods"):
-              for fname in files:
-                  if fname in targets and "folly" in root.lower():
-                      fpath = os.path.join(root, fname)
-                      # Resolve symlink to get real path
-                      if os.path.islink(fpath):
-                          real_path = os.path.realpath(fpath)
-                          with open(real_path, "r") as f:
-                              content = f.read()
-                          os.remove(fpath)
-                      else:
-                          os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
-                          with open(fpath, "r") as f:
-                              content = f.read()
-
-                      if "REVAX_PATCH" in content:
-                          continue
-
-                      # Remove ALL lines that include folly/coro
-                      lines = content.split("\n")
-                      new_lines = []
-                      for line in lines:
-                          if "folly/coro" in line:
-                              new_lines.append("// REMOVED: " + line)
-                          elif "namespace coro" in line and "folly" in line:
-                              new_lines.append("// REMOVED: " + line)
-                          else:
-                              new_lines.append(line)
-
-                      # Also comment out entire coro namespace blocks
-                      result = "\n".join(new_lines)
-                      # Add marker
-                      result = "// REVAX_PATCH - folly coro removed\n" + result
-
-                      with open(fpath, "w") as f:
-                          f.write(result)
-                      patched.append(fpath)
-
-          for p in patched:
-              print(f"Patched: {p}")
-          print(f"Total: {len(patched)} files patched")
-          PYEOF
-          python3 /tmp/folly_patch.py
+          # Instead of patching headers, create a stub folly/coro/Coroutine.h
+          # This satisfies the #include without needing to modify any source
+          FOLLY_DIR=$(find Pods -type d -name "folly" -path "*/RCT-Folly/*" | head -1)
+          echo "Found folly dir: $FOLLY_DIR"
+          mkdir -p "$FOLLY_DIR/coro"
+          cat > "$FOLLY_DIR/coro/Coroutine.h" << 'STUBEOF'
+          #pragma once
+          // Stub: folly coroutine support disabled for iOS build
+          #include <experimental/coroutine>
+          STUBEOF
+          # Also create experimental/coroutine stub if needed
+          mkdir -p "$FOLLY_DIR/../experimental"
+          cat > "$FOLLY_DIR/../experimental/coroutine" << 'STUBEOF2'
+          #pragma once
+          // Stub: C++ coroutine header not available, provide minimal stubs
+          namespace std { namespace experimental {
+            template<typename T = void> struct coroutine_handle {
+              static coroutine_handle from_address(void*) noexcept { return {}; }
+              void* address() const noexcept { return nullptr; }
+              void resume() const {}
+              void destroy() const {}
+              bool done() const noexcept { return true; }
+              explicit operator bool() const noexcept { return false; }
+            };
+            struct suspend_always { bool await_ready() const noexcept { return false; } void await_suspend(coroutine_handle<>) const noexcept {} void await_resume() const noexcept {} };
+            struct suspend_never { bool await_ready() const noexcept { return true; } void await_suspend(coroutine_handle<>) const noexcept {} void await_resume() const noexcept {} };
+            template<typename... T> struct coroutine_traits {};
+          }}
+          STUBEOF2
+          # Also put in Headers/Public path
+          PUBLIC_FOLLY=$(find Pods -type d -name "folly" -path "*/Headers/Public/RCT-Folly/*" | head -1)
+          if [ -n "$PUBLIC_FOLLY" ]; then
+            mkdir -p "$PUBLIC_FOLLY/coro"
+            cp "$FOLLY_DIR/coro/Coroutine.h" "$PUBLIC_FOLLY/coro/Coroutine.h"
+          fi
+          echo "Created stub Coroutine.h files"
+          find Pods -path "*/coro/Coroutine.h" -type f
 
       - name: Build IPA
         run: |
