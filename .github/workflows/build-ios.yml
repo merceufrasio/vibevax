@@ -16,18 +16,25 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Use Xcode 16.1 which has iOS SDK pre-installed on macos-15 runner
+          # List all Xcode versions available on runner
+          ls /Applications/ | grep -i xcode
+          # Use Xcode 16.1 which has iOS 18.1 SDK pre-installed
           if [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
           elif [ -d "/Applications/Xcode_16.2.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
           else
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
-          # List available iOS SDKs
-          xcodebuild -showsdks | grep iOS || echo "No iOS SDK found, attempting download..."
-          xcodebuild -showsdks | grep -q iOS || xcodebuild -downloadPlatform iOS
+          echo "Available iOS SDKs:"
+          xcodebuild -showsdks | grep iOS || echo "No iOS SDK found"
+          # Capture the SDK name for later use
+          IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
+          echo "Will use SDK: $IOS_SDK"
+          echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,6 +44,25 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock', 'package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-deriveddata-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-deriveddata-
 
       - name: Setup certificates
         env:
@@ -156,7 +182,7 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/ReVax.xcarchive \
-            -destination "generic/platform=iOS" \
+            -sdk "$IOS_SDK" \
             CODE_SIGN_STYLE=Manual \
             "PROVISIONING_PROFILE=${PROFILE_UUID}" \
             "PROVISIONING_PROFILE_SPECIFIER=" \
