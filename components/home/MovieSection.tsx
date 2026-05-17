@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 
 import { MovieCard } from "@/components/shared/MovieCard";
 import { SectionHeader } from "@/components/ui/SectionHeader";
@@ -15,15 +15,21 @@ export function MovieSection({
   movies,
   onPressMovie,
 }: MovieSectionProps) {
+  // Deduplicate movies by id to avoid React duplicate key warnings
+  // (PhimPal and other sources may return the same item multiple times in a section)
+  const uniqueMovies = movies.filter(
+    (movie, index, self) => self.findIndex((m) => m.id === movie.id) === index,
+  );
+
   return (
-    <>
+    <View>
       <SectionHeader title={title} />
       <ScrollView
         contentContainerStyle={styles.content}
         horizontal
         showsHorizontalScrollIndicator={false}
       >
-        {movies.map((movie) => (
+        {uniqueMovies.map((movie) => (
           <MovieCard
             key={movie.id}
             movie={movie}
@@ -31,7 +37,7 @@ export function MovieSection({
           />
         ))}
       </ScrollView>
-    </>
+    </View>
   );
 }
 

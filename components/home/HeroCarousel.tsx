@@ -227,9 +227,9 @@ export function HeroCarousel({ movies, sourceId }: HeroCarouselProps) {
         </Text>
 
         <View style={styles.pagination}>
-          {movies.map((movie, index) => (
+          {movies.map((_, index) => (
             <View
-              key={movie.id}
+              key={index}
               style={[
                 styles.dot,
                 index === activeIndex ? styles.dotActive : null,

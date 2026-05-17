@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useMemo, useState } from "react";
-import { Image, Platform, StatusBar, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Image, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -367,6 +368,39 @@ export function MoviePlayer({ stream, onClose }: Props) {
     p.play();
   });
 
+  const videoRef = useRef<VideoView>(null);
+
+  // Auto-enter fullscreen + landscape when native player starts playing
+  useEffect(() => {
+    if (isEmbed || isImageGallery || !player) return;
+
+    const subscription = player.addListener("playingChange", (event) => {
+      if (event.isPlaying && videoRef.current) {
+        // Force landscape orientation for fullscreen video
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+        videoRef.current.enterFullscreen();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+      // Restore portrait when component unmounts
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    };
+  }, [player, isEmbed, isImageGallery]);
+
+  // For embed (WebView) players: force landscape orientation
+  useEffect(() => {
+    if (!isEmbed || isImageGallery) return;
+
+    // Force landscape for embed video players
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+
+    return () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    };
+  }, [isEmbed, isImageGallery]);
+
   // Hide status bar when player is active
   useEffect(() => {
     StatusBar.setHidden(true, "fade");
@@ -377,6 +411,7 @@ export function MoviePlayer({ stream, onClose }: Props) {
 
   const handleClose = () => {
     StatusBar.setHidden(false, "fade");
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     onClose();
   };
 
@@ -660,6 +695,29 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 }
               }, 1000);
 
+              // Aggressive fullscreen: once video is playing, force native fullscreen
+              var fsAttempts = 0;
+              var fsInterval = setInterval(function() {
+                fsAttempts++;
+                if (fsAttempts > 20) { clearInterval(fsInterval); return; }
+                var videos = document.querySelectorAll('video');
+                for (var vi = 0; vi < videos.length; vi++) {
+                  var v = videos[vi];
+                  if (!v.paused && v.readyState >= 2) {
+                    v.removeAttribute('playsinline');
+                    v.removeAttribute('webkit-playsinline');
+                    try {
+                      if (v.webkitEnterFullscreen) {
+                        v.webkitEnterFullscreen();
+                        logToRN('[Fullscreen] Forced native fullscreen');
+                        clearInterval(fsInterval);
+                      }
+                    } catch(e) {}
+                    break;
+                  }
+                }
+              }, 1500);
+
               // Also try on DOM changes
               var playObserver = new MutationObserver(function() {
                 if (!autoPlayDone) tryAutoPlay();
@@ -745,6 +803,7 @@ export function MoviePlayer({ stream, onClose }: Props) {
         />
       ) : (
         <VideoView
+          ref={videoRef}
           allowsPictureInPicture
           fullscreenOptions={{
             enable: true,

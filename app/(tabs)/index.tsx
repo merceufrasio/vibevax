@@ -58,7 +58,10 @@ export default function HomeScreen() {
     sourceSections.map((section) => section.title),
   );
   const sourceHeroMovies = hasSourceSections
-    ? sourceSections[sourceHeroSectionIndex]?.movies.map(sourceItemToMovie).slice(0, 8) ?? []
+    ? sourceSections[sourceHeroSectionIndex]?.movies
+        .map(sourceItemToMovie)
+        .filter((movie, index, self) => self.findIndex((m) => m.id === movie.id) === index)
+        .slice(0, 8) ?? []
     : [];
   const heroMovies = sourceHeroMovies.length ? sourceHeroMovies : featuredMovies;
 

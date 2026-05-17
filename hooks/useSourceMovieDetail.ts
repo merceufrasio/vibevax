@@ -78,6 +78,85 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
         return null;
       }
 
+      // Handle 2-step navigation for TV shows: if episodeId is a season/detail URL
+      // (starts with "tv/" or "movie/"), fetch detail for that URL to get episodes
+      // instead of trying to resolve a stream directly.
+      if (episodeId.startsWith("tv/") || episodeId.startsWith("movie/")) {
+        setIsResolvingStream(true);
+        setError(null);
+        try {
+          const nextDetail = await repository.getMovieDetail(episodeId);
+          if (nextDetail) {
+            // For PhimPal: season page episodes have computed IDs that may be wrong.
+            // Use GraphQL EpisodesWatch API to get real episode IDs.
+            if (nextDetail.servers.length === 1 && nextDetail.servers[0].episodes.length > 0) {
+              const firstEp = nextDetail.servers[0].episodes[0];
+              // Extract season title ID from the first episode's watch URL
+              // Plugin uses format "watch/{seasonId}:{epNum}" as placeholder
+              // or "watch/{seasonId}" for simple cases
+              const watchIdMatch = firstEp.id?.match(/^watch\/(\d+)/);
+              if (watchIdMatch) {
+                const estimatedSeasonId = watchIdMatch[1];
+                try {
+                  const gqlBody = JSON.stringify({
+                    operationName: "EpisodesWatch",
+                    variables: { parentId: estimatedSeasonId },
+                    query: 'query EpisodesWatch($parentId: String) { titles(first: 1200, order: "asc", parentId: $parentId, watchable: true) { nodes { id number nameEn __typename } __typename } }'
+                  });
+                  const gqlResponse = await fetch("https://legacy.phimpal.com/b/g", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Origin": "https://legacy.phimpal.com",
+                      "Referer": "https://legacy.phimpal.com/",
+                    },
+                    body: gqlBody,
+                  });
+                  if (gqlResponse.ok) {
+                    const gqlData = await gqlResponse.json();
+                    const nodes = gqlData?.data?.titles?.nodes;
+                    if (Array.isArray(nodes) && nodes.length > 0) {
+                      // Replace episodes with real IDs from GraphQL
+                      nextDetail.servers[0].episodes = nodes.map((node: { id: string; number: string; nameEn?: string }) => ({
+                        id: "watch/" + node.id,
+                        slug: "watch/" + node.id,
+                        name: node.nameEn
+                          ? "Tập " + node.number + ": " + node.nameEn
+                          : "Tập " + node.number,
+                      }));
+                    }
+                  }
+                } catch {
+                  // If GraphQL fails, keep computed IDs as fallback
+                }
+              }
+            }
+
+            setDetail(nextDetail);
+            void enrichSourceMovieDetailWithMetadata(nextDetail).then(
+              (enrichedDetail) => {
+                setDetail((currentDetail) => {
+                  if (!currentDetail || currentDetail.id !== enrichedDetail.id) {
+                    return currentDetail;
+                  }
+                  return enrichedDetail;
+                });
+              },
+            );
+          }
+        } catch (navError) {
+          if (isSourceChallengeRequiredError(navError)) {
+            setChallenge(navError.challenge);
+            setError(navError.message);
+          } else {
+            setError(String(navError));
+          }
+        } finally {
+          setIsResolvingStream(false);
+        }
+        return null;
+      }
+
       setIsResolvingStream(true);
       setError(null);
       setChallenge(null);
