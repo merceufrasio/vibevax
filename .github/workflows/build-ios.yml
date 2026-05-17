@@ -16,22 +16,17 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # List all Xcode versions available on runner
           ls /Applications/ | grep -i xcode
-          # Use Xcode 16.1 which has iOS 18.1 SDK pre-installed
           if [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
           elif [ -d "/Applications/Xcode_16.0.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
-          elif [ -d "/Applications/Xcode_16.2.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
           else
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
           echo "Available iOS SDKs:"
-          xcodebuild -showsdks | grep iOS || echo "No iOS SDK found"
-          # Capture the SDK name for later use
+          xcodebuild -showsdks | grep iOS
           IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
           echo "Will use SDK: $IOS_SDK"
           echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
@@ -48,21 +43,9 @@ jobs:
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: |
-            ios/Pods
-            ~/Library/Caches/CocoaPods
-            ~/.cocoapods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock', 'package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
-
-      - name: Cache DerivedData
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData
-          key: ${{ runner.os }}-deriveddata-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-deriveddata-
+          path: ios/Pods
+          key: pods-${{ hashFiles('package-lock.json') }}
+          restore-keys: pods-
 
       - name: Setup certificates
         env:
@@ -73,26 +56,20 @@ jobs:
           if [ -z "$P12_BASE64" ]; then echo "::error::P12_BASE64 secret is empty!"; exit 1; fi
           if [ -z "$P12_PASSWORD" ]; then echo "::error::P12_PASSWORD secret is empty!"; exit 1; fi
           if [ -z "$MOBILEPROVISION_BASE64" ]; then echo "::error::MOBILEPROVISION_BASE64 secret is empty!"; exit 1; fi
-
           echo "$P12_BASE64" | base64 --decode > cert.p12
           echo "$MOBILEPROVISION_BASE64" | base64 --decode > cert.mobileprovision
-
           echo "P12 file size: $(wc -c < cert.p12) bytes"
           echo "Mobileprovision file size: $(wc -c < cert.mobileprovision) bytes"
-
           KEYCHAIN_PASSWORD="actions"
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
-
           security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -A -T /usr/bin/codesign -T /usr/bin/security -f pkcs12
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           PROFILE_UUID=$(security cms -D -i cert.mobileprovision | grep -A1 UUID | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
           cp cert.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
           echo "Certificate and profile installed successfully"
 
@@ -101,20 +78,13 @@ jobs:
           RCT_NEW_ARCH_ENABLED: "0"
         run: |
           rm -rf ~/Library/Caches/CocoaPods
-          rm -rf ~/Library/Developer/Xcode/DerivedData
           npx expo prebuild --platform ios --clean
 
       - name: Disable New Architecture in Podfile
         run: |
           cd ios
-          # Force disable new arch in the generated Podfile
           sed -i '' 's/ENV\[.RCT_NEW_ARCH_ENABLED.\] == .1./false/g' Podfile
           sed -i '' 's/:fabric_enabled => true/:fabric_enabled => false/g' Podfile
-          sed -i '' 's/flags\[:fabric_enabled\] = true/flags[:fabric_enabled] = false/g' Podfile
-          # Also patch the env check in react native config
-          sed -i '' 's/new_arch_enabled = ENV\[.RCT_NEW_ARCH_ENABLED.\]/new_arch_enabled = "0"/g' Podfile
-          echo "Podfile patched to disable new architecture"
-          grep -n "fabric\|new_arch\|RCT_NEW_ARCH" Podfile || echo "No new arch references found"
 
       - name: Install CocoaPods
         env:
@@ -124,47 +94,31 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      - name: Patch Folly headers (force FOLLY_HAS_COROUTINES=0)
+      - name: Patch Folly headers
         run: |
           cd ios
-          # Patch all folly headers to undefine FOLLY_HAS_COROUTINES at the top
-          # This prevents the coro namespace and folly/coro/Coroutine.h includes from being used
-          for f in Pods/RCT-Folly/folly/Expected.h Pods/RCT-Folly/folly/Optional.h Pods/RCT-Folly/folly/Try.h; do
-            if [ -f "$f" ]; then
-              echo "Patching $f to force FOLLY_HAS_COROUTINES=0"
-              # Insert #undef + #define at the very top after include guard
-              # Use a marker to avoid double-patching
-              if ! grep -q "REVAX_PATCHED_COROUTINES" "$f"; then
-                # Add at top of file, right after #pragma once or include guard
-                sed -i '' '1i\
-// REVAX_PATCHED_COROUTINES\
-#ifdef FOLLY_HAS_COROUTINES\
-#undef FOLLY_HAS_COROUTINES\
-#endif\
-#define FOLLY_HAS_COROUTINES 0\
-' "$f"
-                echo "Patched: $f"
-              fi
-            fi
-          done
-
-          # Verify
-          echo "Verification:"
-          grep -l "REVAX_PATCHED_COROUTINES" Pods/RCT-Folly/folly/*.h 2>/dev/null || echo "No patches verified"
+          cat > /tmp/folly_patch.py << 'PYEOF'
+          import os, re
+          patch_text = "// REVAX_PATCH\n#ifdef FOLLY_HAS_COROUTINES\n#undef FOLLY_HAS_COROUTINES\n#endif\n#define FOLLY_HAS_COROUTINES 0\n"
+          for root, dirs, files in os.walk("Pods/RCT-Folly/folly"):
+              for fname in files:
+                  if fname in ("Expected.h", "Optional.h", "Try.h"):
+                      fpath = os.path.join(root, fname)
+                      with open(fpath, "r") as f:
+                          content = f.read()
+                      if "REVAX_PATCH" not in content:
+                          with open(fpath, "w") as f:
+                              f.write(patch_text + content)
+                          print(f"Patched: {fpath}")
+          PYEOF
+          python3 /tmp/folly_patch.py
 
       - name: Build IPA
         run: |
           cd ios
-
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          echo "Found workspace: $WORKSPACE"
-
-          echo "Available schemes:"
-          xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A 50 "Schemes:" | tail -n +2 | head -20
-
           SCHEME="ReVax"
-          echo "Using scheme: $SCHEME"
-
+          echo "Building $SCHEME from $WORKSPACE with SDK $IOS_SDK"
           cat > ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -184,7 +138,6 @@ jobs:
           </dict>
           </plist>
           EOF
-
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -196,11 +149,8 @@ jobs:
             "PROVISIONING_PROFILE_SPECIFIER=" \
             "CODE_SIGN_IDENTITY=iPhone Distribution" \
             DEVELOPMENT_TEAM=FWU2HH6A9H \
-            "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0" \
-            "OTHER_CFLAGS=\$(inherited) -DFOLLY_HAS_COROUTINES=0" \
-            "OTHER_CPLUSPLUSFLAGS=\$(inherited) -DFOLLY_HAS_COROUTINES=0" \
+            "GCC_PREPROCESSOR_DEFINITIONS=FOLLY_HAS_COROUTINES=0" \
             -allowProvisioningUpdates
-
           xcodebuild -exportArchive \
             -archivePath build/ReVax.xcarchive \
             -exportPath build/output \
