@@ -15,7 +15,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          xcodebuild -downloadPlatform iOS
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -83,8 +85,21 @@ jobs:
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
           echo "Found workspace: $WORKSPACE"
           
-          # Find scheme name
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          # Find scheme name - use the app scheme, not a library scheme
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+schemes = data['workspace']['schemes']
+# Prefer scheme matching app name, exclude library schemes
+app_schemes = [s for s in schemes if s not in ['EXConstants', 'Pods-ReVax'] and 'Test' not in s]
+# Try to find 'ReVax' or similar
+for s in app_schemes:
+    if 'ReVax' in s or 'revax' in s:
+        print(s)
+        sys.exit(0)
+# Fallback to first non-library scheme
+print(app_schemes[0] if app_schemes else schemes[0])
+")
           echo "Found scheme: $SCHEME"
           
           # Create ExportOptions.plist for ad-hoc distribution
