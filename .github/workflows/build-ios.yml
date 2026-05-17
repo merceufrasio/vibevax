@@ -67,9 +67,22 @@ jobs:
       - name: Prebuild iOS
         run: npx expo prebuild --platform ios --clean
 
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
       - name: Build IPA
         run: |
           cd ios
+          
+          # Find workspace name
+          WORKSPACE=$(ls -d *.xcworkspace | head -1)
+          echo "Found workspace: $WORKSPACE"
+          
+          # Find scheme name
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace']['schemes'][0])")
+          echo "Found scheme: $SCHEME"
           
           # Create ExportOptions.plist for ad-hoc distribution
           cat > ExportOptions.plist << 'EOF'
@@ -94,8 +107,8 @@ jobs:
 
           # Build archive
           xcodebuild archive \
-            -workspace ReVax.xcworkspace \
-            -scheme ReVax \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/ReVax.xcarchive \
             -destination "generic/platform=iOS" \
