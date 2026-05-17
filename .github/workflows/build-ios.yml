@@ -102,29 +102,21 @@ jobs:
         run: |
           cd ios
           # Find all folly headers that reference coro/Coroutine.h and patch them
+          # Only patch regular files (skip symlinks)
           echo "Searching for folly/coro references..."
-          find Pods -name "*.h" -exec grep -l "folly/coro/Coroutine.h" {} \; 2>/dev/null | while read f; do
+          find Pods -name "*.h" -type f -exec grep -l "folly/coro/Coroutine.h" {} \; 2>/dev/null | while read f; do
             echo "Patching: $f"
             sed -i '' 's|#include <folly/coro/Coroutine.h>|// #include <folly/coro/Coroutine.h> // patched|g' "$f"
             sed -i '' 's|#include "folly/coro/Coroutine.h"|// #include "folly/coro/Coroutine.h" // patched|g' "$f"
           done
 
-          # Also wrap the coro namespace usage in Expected.h and Optional.h with ifdef
-          find Pods -name "Expected.h" -path "*/folly/*" -exec sed -i '' '
-            /namespace coro/,/^}.*\/\/ namespace coro/{
-              s/^/\/\/ PATCHED: /
-            }
-          ' {} \;
-
-          find Pods -name "Optional.h" -path "*/folly/*" -exec sed -i '' '
-            /namespace coro/,/^}.*\/\/ namespace coro/{
-              s/^/\/\/ PATCHED: /
-            }
-          ' {} \;
+          # Comment out coro namespace blocks in real files only (not symlinks)
+          find Pods -name "Expected.h" -path "*/folly/*" -type f -exec sed -i '' '/namespace coro/,/^}.*\/\/ namespace coro/s/^/\/\/ PATCHED: /' {} \;
+          find Pods -name "Optional.h" -path "*/folly/*" -type f -exec sed -i '' '/namespace coro/,/^}.*\/\/ namespace coro/s/^/\/\/ PATCHED: /' {} \;
 
           # Verify
-          echo "Remaining coro references:"
-          grep -r "folly/coro" Pods/ --include="*.h" 2>/dev/null | grep -v "// patched\|// PATCHED" | head -5 || echo "All patched!"
+          echo "Remaining coro references in regular files:"
+          find Pods -name "*.h" -type f -exec grep -l "folly/coro" {} \; 2>/dev/null | grep -v patched | head -5 || echo "All patched!"
 
       - name: Build IPA
         run: |
