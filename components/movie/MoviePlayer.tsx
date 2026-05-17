@@ -389,12 +389,12 @@ export function MoviePlayer({ stream, onClose }: Props) {
     };
   }, [player, isEmbed, isImageGallery]);
 
-  // For embed (WebView) players: force landscape orientation
+  // For embed (WebView) players: unlock orientation so native fullscreen can auto-rotate
   useEffect(() => {
     if (!isEmbed || isImageGallery) return;
 
-    // Force landscape for embed video players
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    // Unlock orientation — native iOS player will auto-rotate to landscape for 16:9 videos
+    ScreenOrientation.unlockAsync().catch(() => {});
 
     return () => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
@@ -528,6 +528,16 @@ export function MoviePlayer({ stream, onClose }: Props) {
 
               if (payload.type === "avs-debug" && __DEV__) {
                 console.log("[WebView:avs-debug]", payload.message);
+              }
+
+              // Handle orientation changes from WebView native fullscreen
+              if (payload.type === "orientation-unlock") {
+                // Unlock orientation so native iOS player can auto-rotate to landscape
+                ScreenOrientation.unlockAsync().catch(() => {});
+              }
+              if (payload.type === "orientation-lock-portrait") {
+                // Re-lock to portrait when exiting native fullscreen
+                ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
               }
 
               if (
@@ -695,9 +705,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 }
               }, 1000);
 
-              // Aggressive fullscreen: keep video playing inline in landscape WebView
-              // Do NOT call webkitEnterFullscreen() as it opens native player in portrait.
-              // Instead, make the video fill the entire WebView which is already landscape.
+              // Aggressive fullscreen: once video is playing, enter native iOS fullscreen in landscape.
+              // Strategy: unlock orientation so native player can auto-rotate to landscape,
+              // then call webkitEnterFullscreen(). Native iOS player will display in landscape
+              // for landscape videos (16:9). When user exits, we re-lock to portrait.
               var fsAttempts = 0;
               var fsInterval = setInterval(function() {
                 fsAttempts++;
@@ -706,19 +717,38 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 for (var vi = 0; vi < videos.length; vi++) {
                   var v = videos[vi];
                   if (!v.paused && v.readyState >= 2) {
-                    // Ensure video stays inline and fills the screen
-                    v.setAttribute('playsinline', '');
-                    v.setAttribute('webkit-playsinline', '');
-                    v.style.width = '100vw';
-                    v.style.height = '100vh';
-                    v.style.objectFit = 'contain';
-                    v.style.position = 'fixed';
-                    v.style.top = '0';
-                    v.style.left = '0';
-                    v.style.zIndex = '99999';
-                    v.style.background = '#000';
-                    logToRN('[Fullscreen] Video expanded to fill WebView');
-                    clearInterval(fsInterval);
+                    v.removeAttribute('playsinline');
+                    v.removeAttribute('webkit-playsinline');
+
+                    // Listen for fullscreen events to notify React Native
+                    v.addEventListener('webkitbeginfullscreen', function() {
+                      logToRN('[Fullscreen] Native fullscreen started');
+                      // Post message to RN to unlock orientation for native player
+                      try {
+                        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'orientation-unlock'
+                        }));
+                      } catch(e) {}
+                    });
+                    v.addEventListener('webkitendfullscreen', function() {
+                      logToRN('[Fullscreen] Native fullscreen ended');
+                      // Post message to RN to re-lock portrait
+                      try {
+                        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'orientation-lock-portrait'
+                        }));
+                      } catch(e) {}
+                    });
+
+                    try {
+                      if (v.webkitEnterFullscreen) {
+                        v.webkitEnterFullscreen();
+                        logToRN('[Fullscreen] Forced native fullscreen');
+                        clearInterval(fsInterval);
+                      }
+                    } catch(e) {
+                      logToRN('[Fullscreen] Error: ' + e.message);
+                    }
                     break;
                   }
                 }
