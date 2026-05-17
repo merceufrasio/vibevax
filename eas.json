@@ -10,6 +10,18 @@
     "preview": {
       "distribution": "internal"
     },
+    "preview-nosign": {
+      "ios": {
+        "buildConfiguration": "Release",
+        "distribution": "internal",
+        "credentialsSource": "local"
+      }
+    },
+    "simulator": {
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "autoIncrement": true
     }
