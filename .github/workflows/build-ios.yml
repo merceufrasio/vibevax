@@ -106,7 +106,8 @@ jobs:
             -archivePath build/ReVax.xcarchive \
             -destination "generic/platform=iOS" \
             CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="" \
+            "PROVISIONING_PROFILE=${PROFILE_UUID}" \
+            "PROVISIONING_PROFILE_SPECIFIER=" \
             "CODE_SIGN_IDENTITY=iPhone Distribution" \
             DEVELOPMENT_TEAM=FWU2HH6A9H \
             -allowProvisioningUpdates
