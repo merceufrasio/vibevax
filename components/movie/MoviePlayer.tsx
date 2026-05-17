@@ -365,10 +365,26 @@ export function MoviePlayer({ stream, onClose }: Props) {
   const playerUrl = isImageGallery ? "" : stream.url;
 
   const player = useVideoPlayer(playerUrl, (p) => {
+    // Mute initially to bypass iOS autoplay restriction, then unmute after play starts
+    p.muted = true;
     p.play();
   });
 
   const videoRef = useRef<VideoView>(null);
+
+  // Unmute after playback starts
+  useEffect(() => {
+    if (isEmbed || isImageGallery || !player) return;
+
+    const subscription = player.addListener("playingChange", (event) => {
+      if (event.isPlaying) {
+        // Unmute after autoplay succeeds
+        setTimeout(() => { player.muted = false; }, 300);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [player, isEmbed, isImageGallery]);
 
   // Auto-enter fullscreen + landscape when native player starts playing
   useEffect(() => {
