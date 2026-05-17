@@ -424,7 +424,7 @@ export function MoviePlayer({ stream, onClose }: Props) {
       ) : isEmbed ? (
         <WebView
           allowsFullScreen
-          allowsInlineMediaPlayback={false}
+          allowsInlineMediaPlayback
           injectedJavaScriptBeforeContentLoaded={
             // Skip ad-block for storage.googleapiscdn.com — JW Player needs
             // its own resources to load without interference
@@ -550,52 +550,28 @@ export function MoviePlayer({ stream, onClose }: Props) {
               if (window.__avs_reload_checked) return;
               window.__avs_reload_checked = true;
 
-              // === Auto-fullscreen: force native player on iOS ===
-              // When a video element starts playing, request fullscreen immediately
-              var autoFullscreenDone = false;
-              function tryAutoFullscreen() {
-                if (autoFullscreenDone) return;
+              // === Prevent native iOS player from opening ===
+              // Override webkitEnterFullscreen to keep video inline (already landscape fullscreen)
+              var preventNativeFS = function() {
                 var videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
-                  v.addEventListener('playing', function() {
-                    if (autoFullscreenDone) return;
-                    autoFullscreenDone = true;
-                    try {
-                      if (v.webkitEnterFullscreen) {
-                        v.webkitEnterFullscreen();
-                      } else if (v.requestFullscreen) {
-                        v.requestFullscreen();
-                      }
-                    } catch(e) {}
-                  }, { once: true });
+                  if (v.__revax_patched) return;
+                  v.__revax_patched = true;
+                  v.webkitEnterFullscreen = function() {};
+                  v.webkitEnterFullScreen = function() {};
+                  // Also set playsinline attribute
+                  v.setAttribute('playsinline', '');
+                  v.setAttribute('webkit-playsinline', '');
                 });
-              }
-              // Check immediately and also observe for dynamically added videos
-              tryAutoFullscreen();
-              var fsObserver = new MutationObserver(function() { tryAutoFullscreen(); });
-              fsObserver.observe(document.documentElement || document, { childList: true, subtree: true });
+              };
+              preventNativeFS();
+              var nfsObserver = new MutationObserver(function() { preventNativeFS(); });
+              nfsObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
-              // Also check inside iframes after they load
-              setTimeout(function() {
-                try {
-                  var iframes = document.querySelectorAll('iframe');
-                  iframes.forEach(function(iframe) {
-                    try {
-                      var iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                      var videos = iframeDoc.querySelectorAll('video');
-                      videos.forEach(function(v) {
-                        v.addEventListener('playing', function() {
-                          if (autoFullscreenDone) return;
-                          autoFullscreenDone = true;
-                          try {
-                            if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-                          } catch(e) {}
-                        }, { once: true });
-                      });
-                    } catch(e) {} // cross-origin iframe, skip
-                  });
-                } catch(e) {}
-              }, 2000);
+              // Hide native fullscreen button via CSS
+              var fsStyle = document.createElement('style');
+              fsStyle.textContent = 'video::-webkit-media-controls-fullscreen-button { display: none !important; }';
+              (document.head || document.documentElement).appendChild(fsStyle);
 
               // Auto-reload for storage.googleapiscdn.com CF challenge
               var isBlocked = document.title === 'Truy cập bị chặn' ||
