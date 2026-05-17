@@ -8,7 +8,6 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { Stack } from "expo-router";
-import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
@@ -30,11 +29,6 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
-
-  useEffect(() => {
-    // Lock to portrait by default; MoviePlayer unlocks to landscape when active
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

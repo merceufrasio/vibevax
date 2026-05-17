@@ -4,7 +4,7 @@
     "slug": "revax",
     "version": "1.0.0",
     "scheme": "revax",
-    "orientation": "default",
+    "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/images/revax-app-icon.png",
     "splash": {
@@ -42,7 +42,8 @@
       ],
       "expo-video",
       "expo-font",
-      "expo-screen-orientation"
+      "expo-screen-orientation",
+      "./plugins/withVideoLandscape"
     ],
     "experiments": {
       "typedRoutes": true

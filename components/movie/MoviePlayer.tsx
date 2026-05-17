@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ScreenOrientation from "expo-screen-orientation";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Platform, StatusBar, StyleSheet, View } from "react-native";
@@ -368,24 +367,21 @@ export function MoviePlayer({ stream, onClose }: Props) {
     p.play();
   });
 
-  // Lock to landscape when player mounts, restore portrait on unmount
+  // Hide status bar when player is active
   useEffect(() => {
     StatusBar.setHidden(true, "fade");
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-
     return () => {
       StatusBar.setHidden(false, "fade");
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
     };
   }, []);
 
   const handleClose = () => {
     StatusBar.setHidden(false, "fade");
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).then(onClose);
+    onClose();
   };
 
   return (
-    <View style={[styles.container, isImageGallery ? styles.galleryContainer : styles.fullscreenContainer]}>
+    <View style={[styles.container, isImageGallery ? styles.galleryContainer : null]}>
       {isImageGallery ? (
         <View style={styles.galleryList}>
           {stream.images?.map((imageUrl) => (
@@ -576,8 +572,8 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 return;
               }
 
-              // === Auto-play: simulate click on JW Player play button ===
-              // Strategy: find and click the play button, video plays inline in landscape WebView
+              // === Auto-play + enter native fullscreen ===
+              // Native iOS player will open in landscape thanks to AppDelegate config plugin
               var autoPlayDone = false;
               var autoPlayAttempts = 0;
 
@@ -587,71 +583,84 @@ export function MoviePlayer({ stream, onClose }: Props) {
 
                 logToRN('[AutoPlay] Attempt ' + autoPlayAttempts);
 
-                // Strategy 1: Click JW Player play button
-                var jwPlayBtn = document.querySelector('.jw-icon-display') ||
-                                document.querySelector('.jw-display-icon-container') ||
-                                document.querySelector('[aria-label="Play"]') ||
-                                document.querySelector('.vjs-big-play-button') ||
-                                document.querySelector('.play-button') ||
-                                document.querySelector('[class*="play"]');
-                if (jwPlayBtn) {
-                  logToRN('[AutoPlay] Found play button: ' + (jwPlayBtn.className || jwPlayBtn.tagName));
-                  jwPlayBtn.click();
-                  autoPlayDone = true;
-                  logToRN('[AutoPlay] Clicked play button!');
-                  return;
-                }
-
-                // Strategy 2: Try JW Player API
+                // Strategy 1: JW Player API
                 try {
                   if (typeof jwplayer !== 'undefined') {
                     var p = jwplayer();
-                    if (p && p.play) {
-                      p.play();
-                      autoPlayDone = true;
-                      logToRN('[AutoPlay] Called jwplayer().play()');
-                      return;
+                    if (p && p.play && p.getState) {
+                      var state = p.getState();
+                      logToRN('[AutoPlay] JW state: ' + state);
+                      if (state === 'idle' || state === 'paused') {
+                        p.play();
+                        autoPlayDone = true;
+                        logToRN('[AutoPlay] Called jwplayer().play()');
+                        return;
+                      } else if (state === 'playing' || state === 'buffering') {
+                        autoPlayDone = true;
+                        logToRN('[AutoPlay] JW already playing');
+                        return;
+                      }
                     }
                   }
-                } catch(e) {
-                  logToRN('[AutoPlay] jwplayer API error: ' + e.message);
+                } catch(e) {}
+
+                // Strategy 2: Click play button
+                var playBtn = document.querySelector('.jw-icon-display') ||
+                              document.querySelector('.jw-display-icon-container') ||
+                              document.querySelector('[aria-label="Play"]') ||
+                              document.querySelector('.vjs-big-play-button');
+                if (playBtn) {
+                  playBtn.click();
+                  autoPlayDone = true;
+                  logToRN('[AutoPlay] Clicked play button: ' + (playBtn.className || ''));
+                  return;
                 }
 
-                // Strategy 3: Direct video.play()
+                // Strategy 3: Direct video.play() + webkitEnterFullscreen
                 var videos = document.querySelectorAll('video');
-                videos.forEach(function(v, idx) {
-                  if (autoPlayDone) return;
+                if (videos.length > 0) {
+                  var v = videos[0];
+                  logToRN('[AutoPlay] video readyState=' + v.readyState + ' paused=' + v.paused);
+
+                  // Remove playsinline so native player can open
+                  v.removeAttribute('playsinline');
+                  v.removeAttribute('webkit-playsinline');
+
                   if (v.paused) {
-                    logToRN('[AutoPlay] video[' + idx + '] readyState=' + v.readyState + ' trying play()...');
                     v.play().then(function() {
+                      logToRN('[AutoPlay] play() success, entering fullscreen...');
+                      setTimeout(function() {
+                        try {
+                          if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+                          logToRN('[AutoPlay] webkitEnterFullscreen called');
+                        } catch(e) {
+                          logToRN('[AutoPlay] fullscreen error: ' + e.message);
+                        }
+                      }, 500);
                       autoPlayDone = true;
-                      logToRN('[AutoPlay] video[' + idx + '] play() success');
                     }).catch(function(e) {
-                      logToRN('[AutoPlay] video[' + idx + '] play() failed: ' + e.message);
+                      logToRN('[AutoPlay] play() failed: ' + e.message);
                     });
                   } else {
+                    // Already playing, just enter fullscreen
+                    try {
+                      if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+                      logToRN('[AutoPlay] Already playing, entered fullscreen');
+                    } catch(e) {}
                     autoPlayDone = true;
-                    logToRN('[AutoPlay] video[' + idx + '] already playing');
                   }
-                });
-
-                // Strategy 4: Click the video element itself
-                if (!autoPlayDone && videos.length > 0) {
-                  videos[0].click();
-                  logToRN('[AutoPlay] Clicked video element directly');
                 }
               }
 
-              // Poll for play button / video elements
+              // Poll every second
               var autoPlayInterval = setInterval(function() {
                 tryAutoPlay();
                 if (autoPlayDone || autoPlayAttempts > 30) {
                   clearInterval(autoPlayInterval);
-                  if (!autoPlayDone) logToRN('[AutoPlay] Gave up after 30 attempts');
                 }
               }, 1000);
 
-              // Also observe DOM for dynamically added elements
+              // Also try on DOM changes
               var playObserver = new MutationObserver(function() {
                 if (!autoPlayDone) tryAutoPlay();
               });
@@ -762,17 +771,6 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     backgroundColor: "#000",
     position: "relative",
-  },
-  fullscreenContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: "100%",
-    height: "100%",
-    aspectRatio: undefined,
-    zIndex: 999,
   },
   galleryContainer: {
     aspectRatio: undefined,
