@@ -34,14 +34,15 @@ jobs:
           echo "$MOBILEPROVISION_BASE64" | base64 --decode > cert.mobileprovision
 
           # Create keychain
-          security create-keychain -p "" build.keychain
+          KEYCHAIN_PASSWORD="actions"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
 
-          # Import certificate
-          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
+          # Import certificate with proper flags
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -A -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
           # Install provisioning profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -49,6 +50,7 @@ jobs:
           cp cert.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
 
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
+          echo "Certificate and profile installed successfully"
 
       - name: Prebuild iOS
         run: npx expo prebuild --platform ios --clean
