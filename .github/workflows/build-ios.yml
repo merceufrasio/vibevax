@@ -64,7 +64,11 @@ jobs:
         run: npx expo prebuild --platform ios --clean
 
       - name: Install CocoaPods
-        run: cd ios && pod install
+        run: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod repo update
+          pod install --repo-update
 
       - name: Build IPA
         run: |
