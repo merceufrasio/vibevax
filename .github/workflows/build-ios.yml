@@ -98,6 +98,22 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
+      - name: Patch Folly header (fix coro/Coroutine.h not found)
+        run: |
+          cd ios
+          # The issue is folly/Expected.h includes folly/coro/Coroutine.h which doesn't exist
+          # in the prebuilt ReactNativeDependencies. Patch it out.
+          EXPECTED_H=$(find Pods -path "*/RCT-Folly/folly/Expected.h" -o -path "*/ReactNativeDependencies/folly/Expected.h" 2>/dev/null | head -1)
+          if [ -n "$EXPECTED_H" ]; then
+            echo "Patching: $EXPECTED_H"
+            sed -i '' 's|#include <folly/coro/Coroutine.h>|// #include <folly/coro/Coroutine.h> // patched out for CI|g' "$EXPECTED_H"
+            echo "Patch applied successfully"
+          else
+            echo "Expected.h not found, skipping patch"
+          fi
+          # Also check if there are other files including it
+          grep -r "folly/coro/Coroutine.h" Pods/ 2>/dev/null | head -5 || echo "No other references"
+
       - name: Build IPA
         run: |
           cd ios
