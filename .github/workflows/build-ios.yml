@@ -97,21 +97,42 @@ jobs:
       - name: Patch Folly headers
         run: |
           cd ios
-          chmod -R u+w Pods/RCT-Folly/folly/
+          chmod -R u+w Pods/ 2>/dev/null || true
           cat > /tmp/folly_patch.py << 'PYEOF'
-          import os
+          import os, stat
+
           patch_text = "// REVAX_PATCH\n#ifdef FOLLY_HAS_COROUTINES\n#undef FOLLY_HAS_COROUTINES\n#endif\n#define FOLLY_HAS_COROUTINES 0\n"
-          for root, dirs, files in os.walk("Pods/RCT-Folly/folly"):
+          targets = ("Expected.h", "Optional.h", "Try.h")
+          patched = []
+
+          for root, dirs, files in os.walk("Pods"):
               for fname in files:
-                  if fname in ("Expected.h", "Optional.h", "Try.h"):
+                  if fname in targets and "folly" in root.lower():
                       fpath = os.path.join(root, fname)
-                      os.chmod(fpath, 0o644)
-                      with open(fpath, "r") as f:
-                          content = f.read()
-                      if "REVAX_PATCH" not in content:
+                      # Resolve symlinks - get the real file
+                      real_path = os.path.realpath(fpath)
+                      # If it's a symlink, replace with real file copy
+                      if os.path.islink(fpath):
+                          with open(real_path, "r") as f:
+                              content = f.read()
+                          os.remove(fpath)
+                          if "REVAX_PATCH" not in content:
+                              content = patch_text + content
                           with open(fpath, "w") as f:
-                              f.write(patch_text + content)
-                          print(f"Patched: {fpath}")
+                              f.write(content)
+                          patched.append(fpath + " (was symlink)")
+                      else:
+                          os.chmod(fpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+                          with open(fpath, "r") as f:
+                              content = f.read()
+                          if "REVAX_PATCH" not in content:
+                              with open(fpath, "w") as f:
+                                  f.write(patch_text + content)
+                              patched.append(fpath)
+
+          for p in patched:
+              print(f"Patched: {p}")
+          print(f"Total: {len(patched)} files patched")
           PYEOF
           python3 /tmp/folly_patch.py
 
