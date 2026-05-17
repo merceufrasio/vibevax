@@ -14,12 +14,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16
+      - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          # Use Xcode 16.1 which has iOS SDK pre-installed on macos-15 runner
+          if [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          else
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
           xcodebuild -version
-          # Try to download iOS platform, but don't fail the build if it errors
-          xcodebuild -downloadPlatform iOS || echo "Platform download had issues, continuing..."
+          # List available iOS SDKs
+          xcodebuild -showsdks | grep iOS || echo "No iOS SDK found, attempting download..."
+          xcodebuild -showsdks | grep -q iOS || xcodebuild -downloadPlatform iOS
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
