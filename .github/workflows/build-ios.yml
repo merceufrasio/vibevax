@@ -70,13 +70,24 @@ jobs:
           rm -rf ~/Library/Developer/Xcode/DerivedData
           npx expo prebuild --platform ios --clean
 
+      - name: Disable New Architecture in Podfile
+        run: |
+          cd ios
+          # Force disable new arch in the generated Podfile
+          sed -i '' 's/ENV\[.RCT_NEW_ARCH_ENABLED.\] == .1./false/g' Podfile
+          sed -i '' 's/:fabric_enabled => true/:fabric_enabled => false/g' Podfile
+          sed -i '' 's/flags\[:fabric_enabled\] = true/flags[:fabric_enabled] = false/g' Podfile
+          # Also patch the env check in react native config
+          sed -i '' 's/new_arch_enabled = ENV\[.RCT_NEW_ARCH_ENABLED.\]/new_arch_enabled = "0"/g' Podfile
+          echo "Podfile patched to disable new architecture"
+          grep -n "fabric\|new_arch\|RCT_NEW_ARCH" Podfile || echo "No new arch references found"
+
       - name: Install CocoaPods
         env:
           RCT_NEW_ARCH_ENABLED: "0"
         run: |
           cd ios
           rm -rf Pods Podfile.lock
-          pod repo update
           pod install --repo-update
 
       - name: Build IPA

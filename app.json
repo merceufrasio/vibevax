@@ -18,6 +18,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.spinach2659.onion7191",
+      "newArchEnabled": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
