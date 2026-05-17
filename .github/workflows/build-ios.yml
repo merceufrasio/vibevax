@@ -98,21 +98,33 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      - name: Patch Folly header (fix coro/Coroutine.h not found)
+      - name: Patch Folly headers (fix coro/Coroutine.h not found)
         run: |
           cd ios
-          # The issue is folly/Expected.h includes folly/coro/Coroutine.h which doesn't exist
-          # in the prebuilt ReactNativeDependencies. Patch it out.
-          EXPECTED_H=$(find Pods -path "*/RCT-Folly/folly/Expected.h" -o -path "*/ReactNativeDependencies/folly/Expected.h" 2>/dev/null | head -1)
-          if [ -n "$EXPECTED_H" ]; then
-            echo "Patching: $EXPECTED_H"
-            sed -i '' 's|#include <folly/coro/Coroutine.h>|// #include <folly/coro/Coroutine.h> // patched out for CI|g' "$EXPECTED_H"
-            echo "Patch applied successfully"
-          else
-            echo "Expected.h not found, skipping patch"
-          fi
-          # Also check if there are other files including it
-          grep -r "folly/coro/Coroutine.h" Pods/ 2>/dev/null | head -5 || echo "No other references"
+          # Find all folly headers that reference coro/Coroutine.h and patch them
+          echo "Searching for folly/coro references..."
+          find Pods -name "*.h" -exec grep -l "folly/coro/Coroutine.h" {} \; 2>/dev/null | while read f; do
+            echo "Patching: $f"
+            sed -i '' 's|#include <folly/coro/Coroutine.h>|// #include <folly/coro/Coroutine.h> // patched|g' "$f"
+            sed -i '' 's|#include "folly/coro/Coroutine.h"|// #include "folly/coro/Coroutine.h" // patched|g' "$f"
+          done
+
+          # Also wrap the coro namespace usage in Expected.h and Optional.h with ifdef
+          find Pods -name "Expected.h" -path "*/folly/*" -exec sed -i '' '
+            /namespace coro/,/^}.*\/\/ namespace coro/{
+              s/^/\/\/ PATCHED: /
+            }
+          ' {} \;
+
+          find Pods -name "Optional.h" -path "*/folly/*" -exec sed -i '' '
+            /namespace coro/,/^}.*\/\/ namespace coro/{
+              s/^/\/\/ PATCHED: /
+            }
+          ' {} \;
+
+          # Verify
+          echo "Remaining coro references:"
+          grep -r "folly/coro" Pods/ --include="*.h" 2>/dev/null | grep -v "// patched\|// PATCHED" | head -5 || echo "All patched!"
 
       - name: Build IPA
         run: |
