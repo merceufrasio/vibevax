@@ -16,19 +16,13 @@ jobs:
 
       - name: Select Xcode
         run: |
-          ls /Applications/ | grep -i xcode
           if [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-          elif [ -d "/Applications/Xcode_16.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
           else
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
-          echo "Available iOS SDKs:"
-          xcodebuild -showsdks | grep iOS
           IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
-          echo "Will use SDK: $IOS_SDK"
           echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
 
       - name: Setup Node.js
@@ -40,13 +34,6 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: pods-${{ hashFiles('package-lock.json') }}
-          restore-keys: pods-
-
       - name: Setup certificates
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
@@ -54,12 +41,8 @@ jobs:
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
         run: |
           if [ -z "$P12_BASE64" ]; then echo "::error::P12_BASE64 secret is empty!"; exit 1; fi
-          if [ -z "$P12_PASSWORD" ]; then echo "::error::P12_PASSWORD secret is empty!"; exit 1; fi
-          if [ -z "$MOBILEPROVISION_BASE64" ]; then echo "::error::MOBILEPROVISION_BASE64 secret is empty!"; exit 1; fi
           echo "$P12_BASE64" | base64 --decode > cert.p12
           echo "$MOBILEPROVISION_BASE64" | base64 --decode > cert.mobileprovision
-          echo "P12 file size: $(wc -c < cert.p12) bytes"
-          echo "Mobileprovision file size: $(wc -c < cert.mobileprovision) bytes"
           KEYCHAIN_PASSWORD="actions"
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -71,20 +54,11 @@ jobs:
           PROFILE_UUID=$(security cms -D -i cert.mobileprovision | grep -A1 UUID | grep string | sed 's/.*<string>\(.*\)<\/string>/\1/')
           cp cert.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
           echo "PROFILE_UUID=${PROFILE_UUID}" >> $GITHUB_ENV
-          echo "Certificate and profile installed successfully"
 
       - name: Prebuild iOS
         env:
           RCT_NEW_ARCH_ENABLED: "0"
-        run: |
-          rm -rf ~/Library/Caches/CocoaPods
-          npx expo prebuild --platform ios --clean
-
-      - name: Disable New Architecture in Podfile
-        run: |
-          cd ios
-          sed -i '' 's/ENV\[.RCT_NEW_ARCH_ENABLED.\] == .1./false/g' Podfile
-          sed -i '' 's/:fabric_enabled => true/:fabric_enabled => false/g' Podfile
+        run: npx expo prebuild --platform ios --clean
 
       - name: Install CocoaPods
         env:
@@ -94,53 +68,56 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      - name: Patch Folly headers
+      - name: Create folly coro stubs
         run: |
           cd ios
-          # Instead of patching headers, create a stub folly/coro/Coroutine.h
-          # This satisfies the #include without needing to modify any source
-          FOLLY_DIR=$(find Pods -type d -name "folly" -path "*/RCT-Folly/*" | head -1)
-          echo "Found folly dir: $FOLLY_DIR"
-          mkdir -p "$FOLLY_DIR/coro"
-          cat > "$FOLLY_DIR/coro/Coroutine.h" << 'STUBEOF'
-          #pragma once
-          // Stub: folly coroutine support disabled for iOS build
-          #include <experimental/coroutine>
-          STUBEOF
-          # Also create experimental/coroutine stub if needed
-          mkdir -p "$FOLLY_DIR/../experimental"
-          cat > "$FOLLY_DIR/../experimental/coroutine" << 'STUBEOF2'
-          #pragma once
-          // Stub: C++ coroutine header not available, provide minimal stubs
-          namespace std { namespace experimental {
-            template<typename T = void> struct coroutine_handle {
-              static coroutine_handle from_address(void*) noexcept { return {}; }
-              void* address() const noexcept { return nullptr; }
-              void resume() const {}
-              void destroy() const {}
-              bool done() const noexcept { return true; }
-              explicit operator bool() const noexcept { return false; }
-            };
-            struct suspend_always { bool await_ready() const noexcept { return false; } void await_suspend(coroutine_handle<>) const noexcept {} void await_resume() const noexcept {} };
-            struct suspend_never { bool await_ready() const noexcept { return true; } void await_suspend(coroutine_handle<>) const noexcept {} void await_resume() const noexcept {} };
-            template<typename... T> struct coroutine_traits {};
-          }}
-          STUBEOF2
-          # Also put in Headers/Public path
-          PUBLIC_FOLLY=$(find Pods -type d -name "folly" -path "*/Headers/Public/RCT-Folly/*" | head -1)
-          if [ -n "$PUBLIC_FOLLY" ]; then
-            mkdir -p "$PUBLIC_FOLLY/coro"
-            cp "$FOLLY_DIR/coro/Coroutine.h" "$PUBLIC_FOLLY/coro/Coroutine.h"
-          fi
-          echo "Created stub Coroutine.h files"
-          find Pods -path "*/coro/Coroutine.h" -type f
+          chmod -R u+w Pods/ 2>/dev/null || true
+          python3 << 'EOF'
+          import os
+
+          # Stub content with proper folly::coro namespace
+          stub = """#pragma once
+          #define FOLLY_HAS_COROUTINES 0
+          #define FOLLY_CFG_NO_COROUTINES 1
+          namespace folly { namespace coro {
+          template <typename T = void> struct coroutine_handle {
+            static coroutine_handle from_address(void*) noexcept { return {}; }
+            void* address() const noexcept { return nullptr; }
+          };
+          template <typename Promise = void> using coroutine_handle_t = coroutine_handle<Promise>;
+          struct suspend_always { bool await_ready() const noexcept { return false; } template<typename T> void await_suspend(T) const noexcept {} void await_resume() const noexcept {} };
+          struct suspend_never { bool await_ready() const noexcept { return true; } template<typename T> void await_suspend(T) const noexcept {} void await_resume() const noexcept {} };
+          }} // namespace folly::coro
+          """
+
+          # Find all places where Coroutine.h should exist
+          for root, dirs, files in os.walk("Pods"):
+              if "folly" in root and root.endswith("folly"):
+                  coro_dir = os.path.join(root, "coro")
+                  os.makedirs(coro_dir, exist_ok=True)
+                  path = os.path.join(coro_dir, "Coroutine.h")
+                  if not os.path.exists(path) or os.path.getsize(path) < 100:
+                      with open(path, "w") as f:
+                          f.write(stub)
+                      print(f"Created: {path}")
+
+          # Also find Header directories
+          for root, dirs, files in os.walk("Pods/Headers"):
+              if root.endswith("RCT-Folly/folly"):
+                  coro_dir = os.path.join(root, "coro")
+                  os.makedirs(coro_dir, exist_ok=True)
+                  path = os.path.join(coro_dir, "Coroutine.h")
+                  with open(path, "w") as f:
+                      f.write(stub)
+                  print(f"Created: {path}")
+          EOF
 
       - name: Build IPA
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
           SCHEME="ReVax"
-          echo "Building $SCHEME from $WORKSPACE with SDK $IOS_SDK"
+          echo "Building $SCHEME with SDK $IOS_SDK"
           cat > ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -171,7 +148,7 @@ jobs:
             "PROVISIONING_PROFILE_SPECIFIER=" \
             "CODE_SIGN_IDENTITY=iPhone Distribution" \
             DEVELOPMENT_TEAM=FWU2HH6A9H \
-            "GCC_PREPROCESSOR_DEFINITIONS=FOLLY_HAS_COROUTINES=0" \
+            "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0 FOLLY_CFG_NO_COROUTINES=1" \
             -allowProvisioningUpdates
           xcodebuild -exportArchive \
             -archivePath build/ReVax.xcarchive \
