@@ -576,94 +576,86 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 return;
               }
 
-              // === Auto-play + Auto-fullscreen native iOS player ===
-              // Strategy: find video element, play it, then call webkitEnterFullscreen
-              var autoFSDone = false;
-              var autoFSAttempts = 0;
+              // === Auto-play: simulate click on JW Player play button ===
+              // Strategy: find and click the play button, video plays inline in landscape WebView
+              var autoPlayDone = false;
+              var autoPlayAttempts = 0;
 
-              function tryAutoPlayAndFullscreen() {
-                autoFSAttempts++;
-                if (autoFSDone || autoFSAttempts > 30) return;
+              function tryAutoPlay() {
+                autoPlayAttempts++;
+                if (autoPlayDone || autoPlayAttempts > 30) return;
 
-                // Search for video elements in main document
+                logToRN('[AutoPlay] Attempt ' + autoPlayAttempts);
+
+                // Strategy 1: Click JW Player play button
+                var jwPlayBtn = document.querySelector('.jw-icon-display') ||
+                                document.querySelector('.jw-display-icon-container') ||
+                                document.querySelector('[aria-label="Play"]') ||
+                                document.querySelector('.vjs-big-play-button') ||
+                                document.querySelector('.play-button') ||
+                                document.querySelector('[class*="play"]');
+                if (jwPlayBtn) {
+                  logToRN('[AutoPlay] Found play button: ' + (jwPlayBtn.className || jwPlayBtn.tagName));
+                  jwPlayBtn.click();
+                  autoPlayDone = true;
+                  logToRN('[AutoPlay] Clicked play button!');
+                  return;
+                }
+
+                // Strategy 2: Try JW Player API
+                try {
+                  if (typeof jwplayer !== 'undefined') {
+                    var p = jwplayer();
+                    if (p && p.play) {
+                      p.play();
+                      autoPlayDone = true;
+                      logToRN('[AutoPlay] Called jwplayer().play()');
+                      return;
+                    }
+                  }
+                } catch(e) {
+                  logToRN('[AutoPlay] jwplayer API error: ' + e.message);
+                }
+
+                // Strategy 3: Direct video.play()
                 var videos = document.querySelectorAll('video');
-                logToRN('[AutoFS] Attempt ' + autoFSAttempts + ', found ' + videos.length + ' video(s) in main doc');
-
-                // Also search inside iframes (same-origin only)
-                var iframes = document.querySelectorAll('iframe');
-                iframes.forEach(function(iframe, idx) {
-                  try {
-                    var iDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    var iVideos = iDoc.querySelectorAll('video');
-                    logToRN('[AutoFS] iframe[' + idx + '] has ' + iVideos.length + ' video(s)');
-                    iVideos.forEach(function(v) { videos = Array.from(videos).concat(v); });
-                  } catch(e) {
-                    logToRN('[AutoFS] iframe[' + idx + '] cross-origin, skipped');
-                  }
-                });
-
-                var allVideos = Array.from(videos);
-                if (allVideos.length === 0) return;
-
-                allVideos.forEach(function(v, idx) {
-                  if (autoFSDone) return;
-
-                  logToRN('[AutoFS] video[' + idx + '] readyState=' + v.readyState + ' paused=' + v.paused + ' src=' + (v.src || v.currentSrc || '').substring(0, 80));
-
-                  // Remove playsinline to allow native fullscreen
-                  v.removeAttribute('playsinline');
-                  v.removeAttribute('webkit-playsinline');
-
-                  // Listen for playing event to trigger fullscreen
-                  v.addEventListener('playing', function onPlaying() {
-                    if (autoFSDone) return;
-                    autoFSDone = true;
-                    logToRN('[AutoFS] video[' + idx + '] is playing! Calling webkitEnterFullscreen...');
-
-                    // Small delay to ensure video is rendering
-                    setTimeout(function() {
-                      try {
-                        if (v.webkitEnterFullscreen) {
-                          v.webkitEnterFullscreen();
-                          logToRN('[AutoFS] webkitEnterFullscreen() called successfully');
-                        } else if (v.webkitEnterFullScreen) {
-                          v.webkitEnterFullScreen();
-                          logToRN('[AutoFS] webkitEnterFullScreen() called successfully');
-                        } else {
-                          logToRN('[AutoFS] No webkitEnterFullscreen method available');
-                        }
-                      } catch(e) {
-                        logToRN('[AutoFS] Error calling fullscreen: ' + e.message);
-                      }
-                    }, 300);
-                  }, { once: true });
-
-                  // Try to play the video if paused
-                  if (v.paused && v.readyState >= 2) {
-                    logToRN('[AutoFS] video[' + idx + '] is paused with data, calling play()...');
+                videos.forEach(function(v, idx) {
+                  if (autoPlayDone) return;
+                  if (v.paused) {
+                    logToRN('[AutoPlay] video[' + idx + '] readyState=' + v.readyState + ' trying play()...');
                     v.play().then(function() {
-                      logToRN('[AutoFS] video[' + idx + '] play() resolved');
+                      autoPlayDone = true;
+                      logToRN('[AutoPlay] video[' + idx + '] play() success');
                     }).catch(function(e) {
-                      logToRN('[AutoFS] video[' + idx + '] play() rejected: ' + e.message);
+                      logToRN('[AutoPlay] video[' + idx + '] play() failed: ' + e.message);
                     });
+                  } else {
+                    autoPlayDone = true;
+                    logToRN('[AutoPlay] video[' + idx + '] already playing');
                   }
                 });
+
+                // Strategy 4: Click the video element itself
+                if (!autoPlayDone && videos.length > 0) {
+                  videos[0].click();
+                  logToRN('[AutoPlay] Clicked video element directly');
+                }
               }
 
-              // Poll for video elements (they may load dynamically)
-              var autoFSInterval = setInterval(function() {
-                tryAutoPlayAndFullscreen();
-                if (autoFSDone || autoFSAttempts > 30) {
-                  clearInterval(autoFSInterval);
-                  if (!autoFSDone) logToRN('[AutoFS] Gave up after 30 attempts');
+              // Poll for play button / video elements
+              var autoPlayInterval = setInterval(function() {
+                tryAutoPlay();
+                if (autoPlayDone || autoPlayAttempts > 30) {
+                  clearInterval(autoPlayInterval);
+                  if (!autoPlayDone) logToRN('[AutoPlay] Gave up after 30 attempts');
                 }
               }, 1000);
 
-              // Also observe DOM for new video elements
-              var videoObserver = new MutationObserver(function() {
-                if (!autoFSDone) tryAutoPlayAndFullscreen();
+              // Also observe DOM for dynamically added elements
+              var playObserver = new MutationObserver(function() {
+                if (!autoPlayDone) tryAutoPlay();
               });
-              videoObserver.observe(document.documentElement || document, { childList: true, subtree: true });
+              playObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
               // === Block pause overlay ads (min88, sin88, etc.) ===
               // Hide any overlay/modal that appears on pause
