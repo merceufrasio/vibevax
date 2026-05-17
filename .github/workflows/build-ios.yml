@@ -124,25 +124,33 @@ jobs:
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      - name: Patch Folly headers (fix coro/Coroutine.h not found)
+      - name: Patch Folly headers (force FOLLY_HAS_COROUTINES=0)
         run: |
           cd ios
-          # Find all folly headers that reference coro/Coroutine.h and patch them
-          # Only patch regular files (skip symlinks)
-          echo "Searching for folly/coro references..."
-          find Pods -name "*.h" -type f -exec grep -l "folly/coro/Coroutine.h" {} \; 2>/dev/null | while read f; do
-            echo "Patching: $f"
-            sed -i '' 's|#include <folly/coro/Coroutine.h>|// #include <folly/coro/Coroutine.h> // patched|g' "$f"
-            sed -i '' 's|#include "folly/coro/Coroutine.h"|// #include "folly/coro/Coroutine.h" // patched|g' "$f"
+          # Patch all folly headers to undefine FOLLY_HAS_COROUTINES at the top
+          # This prevents the coro namespace and folly/coro/Coroutine.h includes from being used
+          for f in Pods/RCT-Folly/folly/Expected.h Pods/RCT-Folly/folly/Optional.h Pods/RCT-Folly/folly/Try.h; do
+            if [ -f "$f" ]; then
+              echo "Patching $f to force FOLLY_HAS_COROUTINES=0"
+              # Insert #undef + #define at the very top after include guard
+              # Use a marker to avoid double-patching
+              if ! grep -q "REVAX_PATCHED_COROUTINES" "$f"; then
+                # Add at top of file, right after #pragma once or include guard
+                sed -i '' '1i\
+// REVAX_PATCHED_COROUTINES\
+#ifdef FOLLY_HAS_COROUTINES\
+#undef FOLLY_HAS_COROUTINES\
+#endif\
+#define FOLLY_HAS_COROUTINES 0\
+' "$f"
+                echo "Patched: $f"
+              fi
+            fi
           done
 
-          # Comment out coro namespace blocks in real files only (not symlinks)
-          find Pods -name "Expected.h" -path "*/folly/*" -type f -exec sed -i '' '/namespace coro/,/^}.*\/\/ namespace coro/s/^/\/\/ PATCHED: /' {} \;
-          find Pods -name "Optional.h" -path "*/folly/*" -type f -exec sed -i '' '/namespace coro/,/^}.*\/\/ namespace coro/s/^/\/\/ PATCHED: /' {} \;
-
           # Verify
-          echo "Remaining coro references in regular files:"
-          find Pods -name "*.h" -type f -exec grep -l "folly/coro" {} \; 2>/dev/null | grep -v patched | head -5 || echo "All patched!"
+          echo "Verification:"
+          grep -l "REVAX_PATCHED_COROUTINES" Pods/RCT-Folly/folly/*.h 2>/dev/null || echo "No patches verified"
 
       - name: Build IPA
         run: |
@@ -188,6 +196,9 @@ jobs:
             "PROVISIONING_PROFILE_SPECIFIER=" \
             "CODE_SIGN_IDENTITY=iPhone Distribution" \
             DEVELOPMENT_TEAM=FWU2HH6A9H \
+            "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0" \
+            "OTHER_CFLAGS=\$(inherited) -DFOLLY_HAS_COROUTINES=0" \
+            "OTHER_CPLUSPLUSFLAGS=\$(inherited) -DFOLLY_HAS_COROUTINES=0" \
             -allowProvisioningUpdates
 
           xcodebuild -exportArchive \
