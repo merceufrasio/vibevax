@@ -642,6 +642,14 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 autoPlayAttempts++;
                 if (autoPlayDone || autoPlayAttempts > 30) return;
 
+                // Skip autoplay if page only has iframe (cross-origin, can't access video)
+                var hasVideo = document.querySelectorAll('video').length > 0;
+                var hasIframe = document.querySelectorAll('iframe').length > 0;
+                if (!hasVideo && hasIframe && autoPlayAttempts >= 3) {
+                  autoPlayDone = true;
+                  return;
+                }
+
                 logToRN('[AutoPlay] Attempt ' + autoPlayAttempts);
 
                 // Strategy 1: JW Player API
