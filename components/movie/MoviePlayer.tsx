@@ -642,23 +642,6 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 autoPlayAttempts++;
                 if (autoPlayDone || autoPlayAttempts > 30) return;
 
-                // Debug: log DOM state on first few attempts
-                if (autoPlayAttempts <= 3) {
-                  var videos = document.querySelectorAll('video');
-                  var iframes = document.querySelectorAll('iframe');
-                  var sources = document.querySelectorAll('source');
-                  var bodyText = (document.body && document.body.innerHTML) ? document.body.innerHTML.substring(0, 500) : 'empty';
-                  logToRN('[AutoPlay:DOM] videos=' + videos.length + ' iframes=' + iframes.length + ' sources=' + sources.length);
-                  logToRN('[AutoPlay:DOM:body] ' + bodyText.replace(/\\n/g, ' ').substring(0, 300));
-                  if (videos.length > 0) {
-                    var v = videos[0];
-                    logToRN('[AutoPlay:DOM:video] src=' + (v.src || 'none') + ' readyState=' + v.readyState + ' paused=' + v.paused + ' playsinline=' + v.hasAttribute('playsinline'));
-                  }
-                  if (iframes.length > 0) {
-                    logToRN('[AutoPlay:DOM:iframe] src=' + (iframes[0].src || 'none'));
-                  }
-                }
-
                 logToRN('[AutoPlay] Attempt ' + autoPlayAttempts);
 
                 // Strategy 1: JW Player API
@@ -738,80 +721,11 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 }
               }, 1000);
 
-              // Aggressive fullscreen: once video is playing, enter native iOS fullscreen in landscape.
-              // Strategy: unlock orientation so native player can auto-rotate to landscape,
-              // then call webkitEnterFullscreen(). Native iOS player will display in landscape
-              // for landscape videos (16:9). When user exits, we re-lock to portrait.
-              var fsAttempts = 0;
-              var fsDone = false;
-              var fsInterval = setInterval(function() {
-                fsAttempts++;
-                if (fsAttempts > 60 || fsDone) { clearInterval(fsInterval); return; }
-                var videos = document.querySelectorAll('video');
-                for (var vi = 0; vi < videos.length; vi++) {
-                  var v = videos[vi];
-                  if (!v.paused && v.readyState >= 2) {
-                    v.removeAttribute('playsinline');
-                    v.removeAttribute('webkit-playsinline');
-
-                    // Listen for fullscreen events to notify React Native
-                    v.addEventListener('webkitbeginfullscreen', function() {
-                      logToRN('[Fullscreen] Native fullscreen started');
-                      try {
-                        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'orientation-unlock'
-                        }));
-                      } catch(e) {}
-                    });
-                    v.addEventListener('webkitendfullscreen', function() {
-                      logToRN('[Fullscreen] Native fullscreen ended');
-                      try {
-                        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'orientation-lock-portrait'
-                        }));
-                      } catch(e) {}
-                    });
-
-                    try {
-                      if (v.webkitEnterFullscreen) {
-                        v.webkitEnterFullscreen();
-                        logToRN('[Fullscreen] Forced native fullscreen');
-                        fsDone = true;
-                        clearInterval(fsInterval);
-                      }
-                    } catch(e) {
-                      logToRN('[Fullscreen] Error: ' + e.message);
-                    }
-                    break;
-                  }
-                }
-              }, 1000);
-
-              // Also listen for any video play event (covers user manual play)
-              var videoObserver = new MutationObserver(function() {
-                if (fsDone) return;
-                var videos = document.querySelectorAll('video');
-                videos.forEach(function(v) {
-                  if (v.__fsListenerAdded) return;
-                  v.__fsListenerAdded = true;
-                  v.addEventListener('playing', function() {
-                    if (fsDone) return;
-                    setTimeout(function() {
-                      v.removeAttribute('playsinline');
-                      v.removeAttribute('webkit-playsinline');
-                      try {
-                        if (v.webkitEnterFullscreen) {
-                          v.webkitEnterFullscreen();
-                          logToRN('[Fullscreen] Native fullscreen via play event');
-                          fsDone = true;
-                          clearInterval(fsInterval);
-                        }
-                      } catch(e) {}
-                    }, 500);
-                  });
-                });
+              // Also try on DOM changes
+              var playObserver = new MutationObserver(function() {
+                if (!autoPlayDone) tryAutoPlay();
               });
-              videoObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+              playObserver.observe(document.documentElement || document, { childList: true, subtree: true });
 
               // Also try on DOM changes
               var playObserver = new MutationObserver(function() {
