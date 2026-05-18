@@ -376,3 +376,57 @@ function getImageUrl(path) {
     // Base image URL for NguonC
     return "https://img.phimapi.com/" + path;
 }
+
+// =============================================================================
+// EMBED RESPONSE PARSER
+// =============================================================================
+
+/**
+ * Parse embed page HTML from streamc.xyz to extract the actual m3u8 stream URL.
+ * The embed page contains a video player that loads m3u8 from a CDN.
+ * This allows native player playback instead of WebView embed.
+ */
+function parseEmbedResponse(html) {
+    try {
+        if (!html || typeof html !== "string") return "{}";
+
+        var streamUrl = "";
+
+        // Strategy 1: Look for m3u8 URL in page source
+        var m3u8Match = html.match(/["'](https?:\/\/[^"']*\.m3u8[^"']*)["']/i);
+        if (m3u8Match && m3u8Match[1]) {
+            streamUrl = m3u8Match[1];
+        }
+
+        // Strategy 2: Look for file/source in player config
+        if (!streamUrl) {
+            var fileMatch = html.match(/(?:file|source|src)\s*[:=]\s*["'](https?:\/\/[^"']+)["']/i);
+            if (fileMatch && fileMatch[1]) {
+                streamUrl = fileMatch[1];
+            }
+        }
+
+        // Strategy 3: Look for mp4 URL
+        if (!streamUrl) {
+            var mp4Match = html.match(/["'](https?:\/\/[^"']*\.mp4[^"']*)["']/i);
+            if (mp4Match && mp4Match[1]) {
+                streamUrl = mp4Match[1];
+            }
+        }
+
+        if (streamUrl) {
+            return JSON.stringify({
+                url: streamUrl,
+                isEmbed: false,
+                headers: {
+                    "Referer": "https://streamc.xyz/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+            });
+        }
+
+        return "{}";
+    } catch (e) {
+        return "{}";
+    }
+}

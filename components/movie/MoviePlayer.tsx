@@ -120,12 +120,6 @@ function isAllowedNavigation(
     return false;
   }
 
-  // If no explicit allowed hosts configured (only the stream URL itself),
-  // allow all navigation to avoid blocking embed player resources
-  if (allowedHosts.size <= 2) {
-    return true;
-  }
-
   try {
     const hostname = normalizeHostname(new URL(url).hostname);
 
