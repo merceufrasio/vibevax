@@ -398,9 +398,38 @@ export class SourceRepository {
       this.manifest.type === "MANGA" || this.manifest.type === "COMIC";
 
     if (isAbsoluteUrl(episodeId) && !isReaderSource) {
+      const isDirectStream = isDirectStreamUrl(episodeId);
+
+      // If this is an embed URL and plugin can parse embed responses,
+      // fetch the embed page and extract the actual stream URL
+      if (!isDirectStream && this.plugin.has("parseEmbedResponse")) {
+        if (__DEV__) {
+          console.log("[SourceRepository:resolveStream:fetchEmbed]", {
+            episodeId: episodeId.substring(0, 80),
+          });
+        }
+
+        const embedRaw = await fetchText(episodeId, undefined, {
+          kind: "stream",
+          sourceId: this.pluginItem.id,
+          sourceName: this.pluginItem.name,
+        });
+
+        const embedStream = normalizeStreamResult(
+          this.plugin.callJson<StreamResult>("parseEmbedResponse", embedRaw, episodeId),
+        );
+
+        if (embedStream.url) {
+          return {
+            ...embedStream,
+            sourceId: this.pluginItem.id,
+          };
+        }
+      }
+
       const streamResult = normalizeStreamResult({
         url: episodeId,
-        isEmbed: !isDirectStreamUrl(episodeId),
+        isEmbed: !isDirectStream,
         sourceId: this.pluginItem.id,
         subtitles: [],
       });
