@@ -383,49 +383,69 @@ function getImageUrl(path) {
 
 /**
  * Parse embed page HTML from streamc.xyz to extract the actual m3u8 stream URL.
- * The embed page contains a video player that loads m3u8 from a CDN.
- * This allows native player playback instead of WebView embed.
+ * The embed page contains obfuscated data in data-obf attribute.
+ * Decode: base64(JSON) → {sUb: "base64_token", hD: "hash"}
+ * Stream URL = https://{embedHost}/{sUb}.m3u8
+ * Referer must be the embed page URL.
  */
-function parseEmbedResponse(html) {
+function parseEmbedResponse(html, embedUrl) {
     try {
         if (!html || typeof html !== "string") return "{}";
 
-        var streamUrl = "";
+        // Extract data-obf attribute from player div
+        var obfMatch = html.match(/data-obf=["']([^"']+)["']/i);
+        if (!obfMatch) return "{}";
 
-        // Strategy 1: Look for m3u8 URL in page source
-        var m3u8Match = html.match(/["'](https?:\/\/[^"']*\.m3u8[^"']*)["']/i);
-        if (m3u8Match && m3u8Match[1]) {
-            streamUrl = m3u8Match[1];
-        }
-
-        // Strategy 2: Look for file/source in player config
-        if (!streamUrl) {
-            var fileMatch = html.match(/(?:file|source|src)\s*[:=]\s*["'](https?:\/\/[^"']+)["']/i);
-            if (fileMatch && fileMatch[1]) {
-                streamUrl = fileMatch[1];
-            }
-        }
-
-        // Strategy 3: Look for mp4 URL
-        if (!streamUrl) {
-            var mp4Match = html.match(/["'](https?:\/\/[^"']*\.mp4[^"']*)["']/i);
-            if (mp4Match && mp4Match[1]) {
-                streamUrl = mp4Match[1];
-            }
-        }
-
-        if (streamUrl) {
-            return JSON.stringify({
-                url: streamUrl,
-                isEmbed: false,
-                headers: {
-                    "Referer": "https://streamc.xyz/",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        // Decode base64 → JSON
+        var obfJson = null;
+        try {
+            // atob equivalent for Node/plugin context
+            var decoded = "";
+            if (typeof atob === "function") {
+                decoded = atob(obfMatch[1]);
+            } else {
+                // Manual base64 decode (ES5 compatible)
+                var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+                var str = obfMatch[1].replace(/[^A-Za-z0-9+/=]/g, "");
+                var output = "";
+                for (var i = 0; i < str.length; i += 4) {
+                    var a = chars.indexOf(str.charAt(i));
+                    var b = chars.indexOf(str.charAt(i + 1));
+                    var c = chars.indexOf(str.charAt(i + 2));
+                    var d = chars.indexOf(str.charAt(i + 3));
+                    output += String.fromCharCode((a << 2) | (b >> 4));
+                    if (c !== 64) output += String.fromCharCode(((b & 15) << 4) | (c >> 2));
+                    if (d !== 64) output += String.fromCharCode(((c & 3) << 6) | d);
                 }
-            });
+                decoded = output;
+            }
+            obfJson = JSON.parse(decoded);
+        } catch (e) {
+            return "{}";
         }
 
-        return "{}";
+        if (!obfJson || !obfJson.sUb) return "{}";
+
+        // Extract embed host from URL (embed13.streamc.xyz, embed15.streamc.xyz, etc.)
+        var embedHost = "";
+        if (embedUrl) {
+            var hostMatch = embedUrl.match(/https?:\/\/([^/]+)/);
+            if (hostMatch) embedHost = hostMatch[1];
+        }
+        if (!embedHost) embedHost = "embed15.streamc.xyz";
+
+        // Build m3u8 URL: https://{embedHost}/{sUb}.m3u8
+        var streamUrl = "https://" + embedHost + "/" + obfJson.sUb + ".m3u8";
+
+        return JSON.stringify({
+            url: streamUrl,
+            isEmbed: false,
+            headers: {
+                "Referer": embedUrl || "https://streamc.xyz/",
+                "Origin": "https://" + embedHost,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        });
     } catch (e) {
         return "{}";
     }
