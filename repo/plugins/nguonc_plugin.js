@@ -215,8 +215,9 @@ function parseMovieDetail(apiResponseJson) {
                         var embed = ep.embed || ep.link_embed || "";
                         var m3u8 = ep.m3u8 || ep.link_m3u8 || "";
 
-                        // Prefer m3u8 direct stream over embed URL for better native player support
-                        var link = m3u8 || embed;
+                        // Use Embed URL as ID (original behavior)
+                        // m3u8 URLs from nguonc are often dead (sing.phimmoi.net DNS failure)
+                        var link = embed || m3u8;
 
                         if (link) {
                             episodes.push({

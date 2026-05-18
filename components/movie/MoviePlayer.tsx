@@ -360,6 +360,19 @@ export function MoviePlayer({ stream, onClose }: Props) {
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const isEmbed = stream.isEmbed;
   const isImageGallery = Boolean(stream.images?.length);
+
+  // Debug: log stream info when player renders
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[MoviePlayer:render]", {
+        url: stream.url?.substring(0, 100),
+        isEmbed,
+        isImageGallery,
+        hasHeaders: !!stream.headers,
+        sourceId: stream.sourceId,
+      });
+    }
+  }, [stream.url, isEmbed, isImageGallery, stream.headers, stream.sourceId]);
   const allowedHosts = useMemo(() => getAllowedHosts(stream), [stream]);
   const blockRules = useMemo(() => getBlockRules(stream), [stream]);
   const playerUrl = isImageGallery ? "" : (isEmbed ? "" : stream.url);
