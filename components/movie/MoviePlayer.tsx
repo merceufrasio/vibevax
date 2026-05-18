@@ -720,6 +720,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
           fullscreenOptions={{
             enable: true,
           }}
+          onFullscreenExit={() => {
+            // Restore portrait when user exits native fullscreen
+            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+          }}
           player={player}
           style={styles.video}
         />
