@@ -436,14 +436,25 @@ function parseMovieDetail(html) {
 
     if (serverSectionMatch) {
         var serverHtml = serverSectionMatch[1];
-        // Split by server-group divs
+        // Split by server-group divs or backup-server li elements
         var serverParts = serverHtml.split(/<div\s+class="[^"]*server[^"]*server-group[^"]*"/i);
+
+        // If no server-group found, try splitting by backup-server or server-title
+        if (serverParts.length <= 1) {
+            serverParts = serverHtml.split(/<li\s+class="[^"]*backup-server[^"]*"/i);
+        }
+        if (serverParts.length <= 1) {
+            serverParts = serverHtml.split(/<h3\s+class="[^"]*server-title[^"]*"/i);
+        }
 
         for (var s = 1; s < serverParts.length; s++) {
             var serverBlock = serverParts[s];
 
-            // Extract server name from h3.server-name
-            var serverNameMatch = serverBlock.match(/<h3\s+class="server-name"[^>]*>([\s\S]*?)<\/h3>/i);
+            // Extract server name from h3.server-name or h3.server-title
+            var serverNameMatch = serverBlock.match(/<h3\s+class="(?:server-name|server-title)"[^>]*>([\s\S]*?)<\/h3>/i);
+            if (!serverNameMatch) {
+                serverNameMatch = serverBlock.match(/<h[23][^>]*class="[^"]*server[^"]*"[^>]*>([\s\S]*?)<\/h[23]>/i);
+            }
             var serverName = serverNameMatch ? PluginUtils.cleanText(serverNameMatch[1]) : "Server " + s;
 
             // Extract episodes from a.episode-link elements
