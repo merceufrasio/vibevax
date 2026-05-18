@@ -398,12 +398,22 @@ export class SourceRepository {
       this.manifest.type === "MANGA" || this.manifest.type === "COMIC";
 
     if (isAbsoluteUrl(episodeId) && !isReaderSource) {
-      return normalizeStreamResult({
+      const streamResult = normalizeStreamResult({
         url: episodeId,
         isEmbed: !isDirectStreamUrl(episodeId),
         sourceId: this.pluginItem.id,
         subtitles: [],
       });
+
+      if (__DEV__) {
+        console.log("[SourceRepository:resolveStream:absoluteUrl]", {
+          episodeId: episodeId.substring(0, 80),
+          isEmbed: streamResult.isEmbed,
+          url: streamResult.url?.substring(0, 80),
+        });
+      }
+
+      return streamResult;
     }
 
     const detailUrl = isAbsoluteUrl(episodeId)
