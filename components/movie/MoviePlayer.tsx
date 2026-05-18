@@ -386,12 +386,15 @@ export function MoviePlayer({ stream, onClose }: Props) {
     return () => subscription.remove();
   }, [player, isEmbed, isImageGallery]);
 
-  // Auto-enter fullscreen + landscape when native player starts playing
+  // Auto-enter fullscreen + landscape when native player starts playing (once only)
   useEffect(() => {
     if (isEmbed || isImageGallery || !player) return;
 
+    let hasEnteredFullscreen = false;
+
     const subscription = player.addListener("playingChange", (event) => {
-      if (event.isPlaying && videoRef.current) {
+      if (event.isPlaying && videoRef.current && !hasEnteredFullscreen) {
+        hasEnteredFullscreen = true;
         // Force landscape orientation for fullscreen video
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
         videoRef.current.enterFullscreen();
