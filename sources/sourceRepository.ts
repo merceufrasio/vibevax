@@ -428,12 +428,15 @@ export class SourceRepository {
           this.plugin.callJson<StreamResult>("parseEmbedResponse", embedRaw, episodeId),
         );
 
-        if (embedStream.url) {
+        // If parseEmbedResponse extracted a stream but it needs Referer headers,
+        // native player can't send them. Fall through to WebView embed.
+        if (embedStream.url && !embedStream.headers?.Referer) {
           return {
             ...embedStream,
             sourceId: this.pluginItem.id,
           };
         }
+        // Fall through: use WebView embed with the original embed URL
       }
 
       const streamResult = normalizeStreamResult({

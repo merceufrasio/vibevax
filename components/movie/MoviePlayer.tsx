@@ -129,6 +129,19 @@ function isAllowedNavigation(
       }
     }
 
+    // Allow same base domain (e.g., embed15.streamc.xyz allows embed13.streamc.xyz)
+    // This handles CDN subdomains for embed players
+    const parts = hostname.split(".");
+    if (parts.length >= 2) {
+      const baseDomain = parts.slice(-2).join(".");
+      for (const allowedHost of allowedHosts) {
+        const allowedParts = allowedHost.split(".");
+        if (allowedParts.length >= 2 && allowedParts.slice(-2).join(".") === baseDomain) {
+          return true;
+        }
+      }
+    }
+
     return false;
   } catch {
     return false;
