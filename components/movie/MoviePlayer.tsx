@@ -642,6 +642,23 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 autoPlayAttempts++;
                 if (autoPlayDone || autoPlayAttempts > 30) return;
 
+                // Debug: log DOM state on first few attempts
+                if (autoPlayAttempts <= 3) {
+                  var videos = document.querySelectorAll('video');
+                  var iframes = document.querySelectorAll('iframe');
+                  var sources = document.querySelectorAll('source');
+                  var bodyText = (document.body && document.body.innerHTML) ? document.body.innerHTML.substring(0, 500) : 'empty';
+                  logToRN('[AutoPlay:DOM] videos=' + videos.length + ' iframes=' + iframes.length + ' sources=' + sources.length);
+                  logToRN('[AutoPlay:DOM:body] ' + bodyText.replace(/\\n/g, ' ').substring(0, 300));
+                  if (videos.length > 0) {
+                    var v = videos[0];
+                    logToRN('[AutoPlay:DOM:video] src=' + (v.src || 'none') + ' readyState=' + v.readyState + ' paused=' + v.paused + ' playsinline=' + v.hasAttribute('playsinline'));
+                  }
+                  if (iframes.length > 0) {
+                    logToRN('[AutoPlay:DOM:iframe] src=' + (iframes[0].src || 'none'));
+                  }
+                }
+
                 logToRN('[AutoPlay] Attempt ' + autoPlayAttempts);
 
                 // Strategy 1: JW Player API
