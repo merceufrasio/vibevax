@@ -596,7 +596,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
           source={
             stream.url.indexOf("storage.googleapiscdn.com") !== -1
               ? { uri: stream.url }
-              : { uri: stream.url }
+              : {
+                  html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${stream.url}" referrerpolicy="unsafe-url" allowfullscreen allow="autoplay;fullscreen;encrypted-media"></iframe></body></html>`,
+                  baseUrl: stream.headers?.Referer || "https://hhpanda.st/",
+                }
           }
           injectedJavaScript={`
             ${stream.webView?.injectedJavaScript || ""}
