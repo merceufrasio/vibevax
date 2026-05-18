@@ -362,12 +362,14 @@ export function MoviePlayer({ stream, onClose }: Props) {
   const isImageGallery = Boolean(stream.images?.length);
   const allowedHosts = useMemo(() => getAllowedHosts(stream), [stream]);
   const blockRules = useMemo(() => getBlockRules(stream), [stream]);
-  const playerUrl = isImageGallery ? "" : stream.url;
+  const playerUrl = isImageGallery ? "" : (isEmbed ? "" : stream.url);
 
   const player = useVideoPlayer(playerUrl, (p) => {
-    // Mute initially to bypass iOS autoplay restriction, then unmute after play starts
-    p.muted = true;
-    p.play();
+    if (!isEmbed && !isImageGallery && playerUrl) {
+      // Mute initially to bypass iOS autoplay restriction, then unmute after play starts
+      p.muted = true;
+      p.play();
+    }
   });
 
   const videoRef = useRef<VideoView>(null);
