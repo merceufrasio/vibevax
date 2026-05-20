@@ -120,7 +120,11 @@ jobs:
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          SCHEME="VibeVax"
+          # Auto-detect scheme name from workspace
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs)
+          if [ -z "$SCHEME" ]; then
+            SCHEME="revax"
+          fi
           echo "Building $SCHEME with SDK $IOS_SDK"
           cat > ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -145,7 +149,7 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath build/VibeVax.xcarchive \
+            -archivePath build/App.xcarchive \
             -sdk "$IOS_SDK" \
             CODE_SIGN_STYLE=Manual \
             "PROVISIONING_PROFILE=${PROFILE_UUID}" \
@@ -156,7 +160,7 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=15.1 \
             -allowProvisioningUpdates
           xcodebuild -exportArchive \
-            -archivePath build/VibeVax.xcarchive \
+            -archivePath build/App.xcarchive \
             -exportPath build/output \
             -exportOptionsPlist ExportOptions.plist
 

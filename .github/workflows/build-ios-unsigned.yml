@@ -92,13 +92,17 @@ jobs:
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          SCHEME="VibeVax"
+          # Auto-detect scheme name from workspace
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs)
+          if [ -z "$SCHEME" ]; then
+            SCHEME="revax"
+          fi
           echo "Building $SCHEME (unsigned) with SDK $IOS_SDK"
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath build/VibeVax.xcarchive \
+            -archivePath build/App.xcarchive \
             -sdk "$IOS_SDK" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -110,7 +114,7 @@ jobs:
         run: |
           cd ios
           mkdir -p build/Payload
-          cp -r build/VibeVax.xcarchive/Products/Applications/*.app build/Payload/
+          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
           mkdir -p build/output
           cd build && zip -r output/VibeVax-unsigned.ipa Payload
 
