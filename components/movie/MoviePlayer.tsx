@@ -1,17 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { IconButton } from "@/components/ui/IconButton";
+import { Colors } from "@/constants/Colors";
+import { CastButton, useCastSession } from "@/modules/cast";
 import type { StreamResult } from "@/sources/types";
 import { appendAdBlockLog } from "@/utils/adBlockLogger";
 
 interface Props {
   stream: StreamResult;
   onClose: () => void;
+  /** Optional metadata for cast session */
+  title?: string;
+  posterUrl?: string;
+  episodeId?: string;
 }
 
 type BlockRule = {
@@ -37,12 +43,20 @@ const GENERIC_BLOCK_RULES: BlockRule[] = [
 const SOURCE_SPECIFIC_BLOCK_RULES: Record<string, BlockRule[]> = {
   nguonc: [
     {
-      id: "nguonc-streamc-ad-video",
-      pattern: /^https?:\/\/(?:www\.)?streamc\.xyz\/1\.mp4(?:[?#].*)?$/i,
+      id: "nguonc-hiller-vast-ad",
+      pattern: /^https?:\/\/raw\.githubusercontent\.com\/hiller1233456\/.+/i,
     },
     {
-      id: "nguonc-hiller-raw-github",
-      pattern: /^https?:\/\/raw\.githubusercontent\.com\/hiller1233456\/.+/i,
+      id: "nguonc-ad-tracking",
+      pattern: /(?:sharethis\.com|crwdcntrl\.net|dtscout\.com|waust\.at)/i,
+    },
+    {
+      id: "nguonc-ad-video-mp4",
+      pattern: /^https?:\/\/(?:www\.)?streamc\.xyz\/\d+\.mp4/i,
+    },
+    {
+      id: "nguonc-ad-redirect",
+      pattern: /(?:6789x\.site|6789bet|bet88|lucky88|fb88|w88|188bet|fun88|m88|sbobet|bong88)/i,
     },
   ],
   animevietsub: [
@@ -369,10 +383,82 @@ function buildBlockedRequestScript(stream: StreamResult, rules: BlockRule[]) {
   `;
 }
 
-export function MoviePlayer({ stream, onClose }: Props) {
+/** Format seconds to mm:ss or hh:mm:ss */
+function formatTime(seconds: number): string {
+  if (!seconds || seconds < 0) return "0:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId }: Props) {
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const isEmbed = stream.isEmbed;
   const isImageGallery = Boolean(stream.images?.length);
+
+  // Cast integration
+  const { state: castState, castMedia, play: castPlay, pause: castPause, seek: castSeek, setVolume: castSetVolume, disconnect } = useCastSession();
+  const isCasting = castState.isConnected;
+  const [castError, setCastError] = useState<string | null>(null);
+  const [localResumePosition, setLocalResumePosition] = useState<number | null>(null);
+  const lastLocalPositionRef = useRef<number>(0);
+
+  // Track when cast session ends to restore local playback
+  const prevCastConnectedRef = useRef(castState.isConnected);
+  useEffect(() => {
+    const wasConnected = prevCastConnectedRef.current;
+    prevCastConnectedRef.current = castState.isConnected;
+
+    if (wasConnected && !castState.isConnected) {
+      // Cast session ended — restore local playback from last cast position
+      const resumePos = castState.playbackPosition || 0;
+      setLocalResumePosition(resumePos);
+      setCastError(null);
+
+      // If there was an error, show it
+      if (castState.error) {
+        setCastError(castState.error.message || "Cast disconnected unexpectedly");
+      }
+    }
+  }, [castState.isConnected, castState.playbackPosition, castState.error]);
+
+  // Handle initiating cast
+  const handleCastMedia = useCallback(async () => {
+    try {
+      setCastError(null);
+      await castMedia({
+        stream: {
+          url: stream.url,
+          headers: stream.headers,
+          isEmbed: stream.isEmbed,
+          mimeType: stream.mimeType,
+          sourceId: stream.sourceId,
+          subtitles: stream.subtitles,
+        },
+        title: title || "Unknown",
+        posterUrl,
+        episodeId: episodeId || "",
+        sourceId: stream.sourceId || "",
+        startPosition: lastLocalPositionRef.current,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to start casting";
+      setCastError(message);
+      // Restore local playback on cast failure
+      setLocalResumePosition(lastLocalPositionRef.current);
+    }
+  }, [castMedia, stream, title, posterUrl, episodeId]);
+
+  // Auto-cast when a device is connected and we have a stream
+  useEffect(() => {
+    if (isCasting && castState.session?.state === "connected") {
+      void handleCastMedia();
+    }
+    // Only trigger when connection state changes to connected
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCasting, castState.session?.state]);
 
   // Debug: log stream info when player renders
   useEffect(() => {
@@ -394,6 +480,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
     if (!isEmbed && !isImageGallery && playerUrl) {
       // Mute initially to bypass iOS autoplay restriction, then unmute after play starts
       p.muted = true;
+      if (localResumePosition !== null && localResumePosition > 0) {
+        p.currentTime = localResumePosition;
+        setLocalResumePosition(null);
+      }
       p.play();
     }
   });
@@ -412,6 +502,19 @@ export function MoviePlayer({ stream, onClose }: Props) {
     });
 
     return () => subscription.remove();
+  }, [player, isEmbed, isImageGallery]);
+
+  // Track local playback position for cast handoff
+  useEffect(() => {
+    if (isEmbed || isImageGallery || !player) return;
+
+    const interval = setInterval(() => {
+      if (player.currentTime > 0) {
+        lastLocalPositionRef.current = player.currentTime;
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
   }, [player, isEmbed, isImageGallery]);
 
   // Auto-enter fullscreen + landscape when native player starts playing (once only)
@@ -464,7 +567,101 @@ export function MoviePlayer({ stream, onClose }: Props) {
 
   return (
     <View style={[styles.container, isImageGallery ? styles.galleryContainer : null]}>
-      {isImageGallery ? (
+      {isCasting ? (
+        /* Cast controls overlay — replaces local video when casting */
+        <View style={styles.castOverlay}>
+          <Ionicons color={Colors.accent.primary} name="tv" size={48} />
+          <Text style={styles.castTitle}>
+            {castState.session?.media?.title || title || "Casting..."}
+          </Text>
+          <Text style={styles.castDevice}>
+            {castState.session?.device.name || "Connected device"}
+          </Text>
+
+          {/* Seek controls */}
+          <View style={styles.castSeekRow}>
+            <Text style={styles.castTime}>
+              {formatTime(castState.playbackPosition)}
+            </Text>
+            <View style={styles.castProgressTrack}>
+              <View
+                style={[
+                  styles.castProgressFill,
+                  {
+                    width: castState.playbackDuration > 0
+                      ? `${(castState.playbackPosition / castState.playbackDuration) * 100}%`
+                      : "0%",
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.castTime}>
+              {formatTime(castState.playbackDuration)}
+            </Text>
+          </View>
+
+          {/* Playback controls */}
+          <View style={styles.castControls}>
+            <Pressable
+              onPress={() => void castSetVolume(Math.max(0, castState.volume - 0.1))}
+              style={({ pressed }) => [styles.castControlBtn, pressed && styles.castControlBtnPressed]}
+            >
+              <Ionicons color="#FFF" name="volume-low" size={24} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => void castSeek(Math.max(0, castState.playbackPosition - 10))}
+              style={({ pressed }) => [styles.castControlBtn, pressed && styles.castControlBtnPressed]}
+            >
+              <Ionicons color="#FFF" name="play-back" size={22} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                if (castState.session?.state === "playing" || castState.session?.state === "buffering") {
+                  void castPause();
+                } else {
+                  void castPlay();
+                }
+              }}
+              style={({ pressed }) => [styles.castControlBtnLarge, pressed && styles.castControlBtnLargePressed]}
+            >
+              <Ionicons
+                color="#FFF"
+                name={castState.session?.state === "playing" || castState.session?.state === "buffering" ? "pause" : "play"}
+                size={32}
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={() => void castSeek(Math.min(castState.playbackDuration, castState.playbackPosition + 10))}
+              style={({ pressed }) => [styles.castControlBtn, pressed && styles.castControlBtnPressed]}
+            >
+              <Ionicons color="#FFF" name="play-forward" size={22} />
+            </Pressable>
+
+            <Pressable
+              onPress={() => void castSetVolume(Math.min(1, castState.volume + 0.1))}
+              style={({ pressed }) => [styles.castControlBtn, pressed && styles.castControlBtnPressed]}
+            >
+              <Ionicons color="#FFF" name="volume-high" size={24} />
+            </Pressable>
+          </View>
+
+          {/* Disconnect button */}
+          <Pressable
+            onPress={() => void disconnect()}
+            style={({ pressed }) => [styles.castDisconnectBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons color="#FF6B6B" name="close-circle-outline" size={20} />
+            <Text style={styles.castDisconnectText}>Ngắt kết nối</Text>
+          </Pressable>
+
+          {castError ? (
+            <Text style={styles.castErrorText}>{castError}</Text>
+          ) : null}
+        </View>
+      ) : isImageGallery ? (
         <View style={styles.galleryList}>
           {stream.images?.map((imageUrl) => (
             <Image
@@ -504,9 +701,214 @@ export function MoviePlayer({ stream, onClose }: Props) {
           allowsFullScreen
           allowsInlineMediaPlayback
           injectedJavaScriptBeforeContentLoaded={
+            // Block VAST ads for streamc.xyz (nguonc embed)
+            // Strategy: block vast.js + devtools.js + ad tracking scripts
+            // Let player1.js run normally — without VAST module, JW skips ads
+            stream.url.indexOf("streamc.xyz") !== -1
+              ? `(function(){
+                  'use strict';
+                  var log = function(msg) {
+                    try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'avs-debug',message:'[AdBlock] '+msg})); } catch(e) {}
+                  };
+
+                  // Scripts to block completely
+                  var BLOCK_SCRIPTS = ['devtools.js','devtools-detector','waust.at'];
+                  var shouldBlock = function(url) {
+                    if (!url) return false;
+                    var lower = url.toLowerCase();
+                    for (var i = 0; i < BLOCK_SCRIPTS.length; i++) {
+                      if (lower.indexOf(BLOCK_SCRIPTS[i]) !== -1) return true;
+                    }
+                    return false;
+                  };
+
+                  // 1. Override document.createElement to intercept <script>
+                  var _createElement = document.createElement.bind(document);
+                  document.createElement = function(tagName, options) {
+                    var el = _createElement(tagName, options);
+                    if (typeof tagName === 'string' && tagName.toLowerCase() === 'script') {
+                      var origSrcDesc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+                      Object.defineProperty(el, 'src', {
+                        configurable: true,
+                        get: function() { return origSrcDesc.get.call(el); },
+                        set: function(val) {
+                          if (shouldBlock(val)) {
+                            log('blocked: ' + val.substring(0, 80));
+                            el.type = 'text/blocked';
+                            return;
+                          }
+                          return origSrcDesc.set.call(el, val);
+                        }
+                      });
+                      var _setAttr = el.setAttribute.bind(el);
+                      el.setAttribute = function(name, value) {
+                        if (name === 'src' && shouldBlock(value)) {
+                          log('attr blocked: ' + value.substring(0, 80));
+                          _setAttr('type', 'text/blocked');
+                          return;
+                        }
+                        return _setAttr(name, value);
+                      };
+                    }
+                    return el;
+                  };
+
+                  // 2. MutationObserver — remove blocked script tags from DOM
+                  new MutationObserver(function(mutations) {
+                    for (var i = 0; i < mutations.length; i++) {
+                      var nodes = mutations[i].addedNodes;
+                      for (var j = 0; j < nodes.length; j++) {
+                        var node = nodes[j];
+                        if (!node.tagName) continue;
+                        var tag = node.tagName.toLowerCase();
+                        var src = node.src || (node.getAttribute && node.getAttribute('src')) || '';
+                        if (tag === 'script' && shouldBlock(src)) {
+                          node.type = 'text/blocked';
+                          node.removeAttribute('src');
+                          log('DOM removed: ' + src.substring(0, 60));
+                        }
+                      }
+                    }
+                  }).observe(document.documentElement || document, { childList: true, subtree: true });
+
+                  // 3. Block fetch/XHR to ad URLs (VAST XML, ad videos, ad networks)
+                  var AD_URLS = ['tlk.xml','hiller1233456','googlesyndication','doubleclick','streamc.xyz/1.mp4','streamc.xyz/ads','/vast','/vmap','/adBreak','invideo'];
+                  var isAdUrl = function(url) {
+                    if (!url) return false;
+                    var lower = url.toLowerCase();
+                    for (var i = 0; i < AD_URLS.length; i++) {
+                      if (lower.indexOf(AD_URLS[i]) !== -1) return true;
+                    }
+                    return false;
+                  };
+                  var _fetch = window.fetch;
+                  window.fetch = function(input) {
+                    var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                    if (isAdUrl(url)) { log('fetch blocked: ' + url.substring(0, 60)); return Promise.resolve(new Response('', {status:200})); }
+                    return _fetch.apply(this, arguments);
+                  };
+                  var _xhrOpen = XMLHttpRequest.prototype.open;
+                  XMLHttpRequest.prototype.open = function(method, url) {
+                    this._blocked = isAdUrl(url);
+                    if (this._blocked) log('XHR blocked: ' + url.substring(0, 60));
+                    return _xhrOpen.apply(this, arguments);
+                  };
+                  var _xhrSend = XMLHttpRequest.prototype.send;
+                  XMLHttpRequest.prototype.send = function() {
+                    if (this._blocked) {
+                      var self = this;
+                      setTimeout(function() {
+                        try {
+                          Object.defineProperty(self, 'readyState', {get:function(){return 4;}, configurable:true});
+                          Object.defineProperty(self, 'status', {get:function(){return 200;}, configurable:true});
+                          Object.defineProperty(self, 'responseText', {get:function(){return '';}, configurable:true});
+                          Object.defineProperty(self, 'response', {get:function(){return '';}, configurable:true});
+                        } catch(e) {}
+                        if (self.onreadystatechange) self.onreadystatechange();
+                        if (self.onload) self.onload();
+                      }, 10);
+                      return;
+                    }
+                    return _xhrSend.apply(this, arguments);
+                  };
+
+                  // 4. Predefine devtoolsDetector
+                  window.devtoolsDetector = { addListener:function(){}, launch:function(){}, stop:function(){}, isLaunch:function(){return false;} };
+                  window.oncontextmenu = null;
+
+                  // 5. After player loads, strip advertising and hide ad UI
+                  var adStyle = document.createElement('style');
+                  adStyle.textContent = '.jw-ad-notice,.jw-ad-skip,.jw-ad-label,.jw-ad-badge,.jw-ad-overlay,.jw-plugin-vast,.jw-controls-backdrop[style*="advancement"],.jw-reset.jw-ad-notice-label,.jw-ad,.jw-ad-container,.jw-ad-message,.jw-ad-cta,.jw-ad-skip-button,[class*="jw-ad"]{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;height:0!important;overflow:hidden!important;}';
+                  (document.head || document.documentElement).appendChild(adStyle);
+
+                  // Poll for jwplayer instance and neutralize ads
+                  var adTick = 0;
+                  var adTimer = setInterval(function() {
+                    adTick++;
+                    if (adTick > 100) { clearInterval(adTimer); return; }
+                    if (typeof jwplayer === 'undefined') return;
+                    try {
+                      var p = jwplayer(0) || jwplayer('player');
+                      if (!p || !p.getConfig) return;
+                      // Strip advertising from config
+                      var cfg = p.getConfig();
+                      if (cfg && cfg.advertising) {
+                        cfg.advertising = null;
+                        cfg.adSchedule = [];
+                        log('advertising config stripped');
+                      }
+                      // Override ad methods to no-op
+                      p.playAd = function(){};
+                      p.pauseAd = function(){};
+                      // Listen for ad events and force play immediately
+                      var forcePlay = function(evt) {
+                        log(evt + ' - forcing play');
+                        try { p.skipAd(); } catch(e) {}
+                        setTimeout(function() { try { p.play(); } catch(e) {} }, 50);
+                      };
+                      p.on('adBreakStart', function() { forcePlay('adBreakStart'); });
+                      p.on('adPlay', function() { forcePlay('adPlay'); });
+                      p.on('adRequest', function() { forcePlay('adRequest'); });
+                      p.on('adError', function() { log('adError - resuming'); try { p.play(); } catch(e) {} });
+
+                      // Force autoplay: mute first (iOS policy), play, then unmute + fullscreen
+                      var hasEnteredFS = false;
+                      var enterFullscreen = function() {
+                        if (hasEnteredFS) return;
+                        hasEnteredFS = true;
+                        log('entering fullscreen');
+                        // Notify RN to force landscape orientation
+                        try {
+                          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'orientation-landscape'}));
+                        } catch(e) {}
+                        // Use JWPlayer fullscreen API
+                        setTimeout(function() {
+                          try { p.setFullscreen(true); } catch(e) {
+                            try {
+                              var vid = document.querySelector('video');
+                              if (vid && vid.webkitEnterFullscreen) vid.webkitEnterFullscreen();
+                              else if (vid && vid.requestFullscreen) vid.requestFullscreen();
+                            } catch(e2) {}
+                          }
+                        }, 300);
+                      };
+                      p.on('play', function() {
+                        // Enter fullscreen shortly after play starts
+                        setTimeout(enterFullscreen, 800);
+                      });
+                      // Restore portrait when exiting fullscreen
+                      p.on('fullscreen', function(e) {
+                        if (!e.fullscreen) {
+                          log('exited fullscreen - restoring portrait');
+                          try {
+                            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'orientation-lock-portrait'}));
+                          } catch(ex) {}
+                        }
+                      });
+                      p.on('ready', function() {
+                        log('ready - forcing autoplay');
+                        p.setMute(true);
+                        p.play();
+                        setTimeout(function() { p.setMute(false); }, 500);
+                      });
+                      // If already ready
+                      if (p.getState && (p.getState() === 'idle' || p.getState() === 'paused')) {
+                        log('already idle - forcing play');
+                        p.setMute(true);
+                        p.play();
+                        setTimeout(function() { p.setMute(false); }, 500);
+                      }
+
+                      clearInterval(adTimer);
+                      log('JW ad hooks installed');
+                    } catch(e) {}
+                  }, 200);
+
+                  log('initialized');
+                })(); true;`
             // Skip ad-block for storage.googleapiscdn.com — JW Player needs
             // its own resources to load without interference
-            stream.url.indexOf("storage.googleapiscdn.com") !== -1
+            : stream.url.indexOf("storage.googleapiscdn.com") !== -1
               ? `(function(){
                   // === 1. Disable Service Worker to prevent reload loops ===
                   // iOS WKWebView doesn't support SW anyway, but the inline
@@ -582,6 +984,10 @@ export function MoviePlayer({ stream, onClose }: Props) {
                 // Unlock orientation so native iOS player can auto-rotate to landscape
                 ScreenOrientation.unlockAsync().catch(() => {});
               }
+              if (payload.type === "orientation-landscape") {
+                // Force landscape for fullscreen video
+                ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+              }
               if (payload.type === "orientation-lock-portrait") {
                 // Re-lock to portrait when exiting native fullscreen
                 ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
@@ -603,6 +1009,11 @@ export function MoviePlayer({ stream, onClose }: Props) {
             }
           }}
           onShouldStartLoadWithRequest={(request) => {
+            // DEBUG: Log all navigation requests to find ad URLs
+            if (__DEV__ && stream.sourceId === "nguonc") {
+              console.log("[WebView:nav]", request.url.substring(0, 120));
+            }
+
             const isAllowed = isAllowedNavigation(
               request.url,
               allowedHosts,
@@ -625,7 +1036,8 @@ export function MoviePlayer({ stream, onClose }: Props) {
           sharedCookiesEnabled
           thirdPartyCookiesEnabled
           source={
-            stream.url.indexOf("storage.googleapiscdn.com") !== -1
+            stream.url.indexOf("storage.googleapiscdn.com") !== -1 ||
+            stream.url.indexOf("streamc.xyz") !== -1
               ? { uri: stream.url }
               : {
                   html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><style>*{margin:0;padding:0}html,body{width:100%;height:100%;background:#000;overflow:hidden}iframe{width:100%;height:100%;border:none}</style></head><body><iframe src="${stream.url}" referrerpolicy="unsafe-url" allowfullscreen allow="autoplay;fullscreen;encrypted-media"></iframe></body></html>`,
@@ -692,6 +1104,8 @@ export function MoviePlayer({ stream, onClose }: Props) {
               adObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
 
               // Monitor JW Player for errors and auto-recover
+              // Skip for streamc.xyz — player1.js handles setup, we only block ads
+              if (window.location.hostname.indexOf('streamc.xyz') !== -1) return;
               var fixAttempts = 0;
               var fixInterval = setInterval(function() {
                 fixAttempts++;
@@ -764,6 +1178,22 @@ export function MoviePlayer({ stream, onClose }: Props) {
           style={styles.iconButton}
         />
       </View>
+
+      {/* Cast button in top-right controls area */}
+      {!isImageGallery && (
+        <View style={styles.castButtonContainer}>
+          <CastButton color="#FFF" size={22} style={styles.castBtn} />
+        </View>
+      )}
+
+      {castError && !isCasting ? (
+        <View style={styles.castErrorBanner}>
+          <Text style={styles.castErrorBannerText}>{castError}</Text>
+          <Pressable onPress={() => setCastError(null)}>
+            <Ionicons color="#FFF" name="close" size={16} />
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -809,5 +1239,130 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+  },
+  castButtonContainer: {
+    position: "absolute",
+    right: 16,
+    top: 16,
+    zIndex: 10,
+  },
+  castBtn: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 20,
+  },
+  castOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  castTitle: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 12,
+  },
+  castDevice: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  castSeekRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginTop: 12,
+  },
+  castProgressTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 2,
+    marginHorizontal: 8,
+    overflow: "hidden",
+  },
+  castProgressFill: {
+    height: "100%",
+    backgroundColor: Colors.accent.primary,
+    borderRadius: 2,
+  },
+  castTime: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    minWidth: 40,
+    textAlign: "center",
+  },
+  castControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginTop: 12,
+  },
+  castControlBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  castControlBtnPressed: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+    transform: [{ scale: 0.9 }],
+  },
+  castControlBtnLarge: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  castControlBtnLargePressed: {
+    backgroundColor: "rgba(255,255,255,0.35)",
+    transform: [{ scale: 0.9 }],
+  },
+  castErrorText: {
+    color: "#FF6B6B",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  castDisconnectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,107,107,0.15)",
+  },
+  castDisconnectText: {
+    color: "#FF6B6B",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  castErrorBanner: {
+    position: "absolute",
+    bottom: 8,
+    left: 16,
+    right: 16,
+    backgroundColor: "rgba(255,80,80,0.9)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 10,
+  },
+  castErrorBannerText: {
+    color: "#FFF",
+    fontSize: 12,
+    flex: 1,
+    marginRight: 8,
   },
 });

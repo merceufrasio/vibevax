@@ -1,0 +1,14 @@
+fetch("wss://rt.animevietsub.site/connection/websocket", {
+  "headers": {
+    "accept-language": "vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "sec-websocket-extensions": "permessage-deflate; client_max_window_bits",
+    "sec-websocket-key": "RO86k2dNUO3PM5h+tKtI1g==",
+    "sec-websocket-version": "13"
+  },
+  "body": null,
+  "method": "GET",
+  "mode": "cors",
+  "credentials": "omit"
+});

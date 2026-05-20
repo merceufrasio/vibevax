@@ -316,17 +316,16 @@ function getUrlSearch(keyword, filtersJson) {
         // Handle null/undefined/non-string keyword by defaulting to empty string
         var q = (keyword === null || keyword === undefined) ? "" : String(keyword);
 
-        // URL-encode the keyword
-        var encoded = encodeURIComponent(q);
+        // PhimPal search uses a static suggestions JSON file that is updated hourly.
+        // The app fetches this file and filters client-side in parseSearchResponse.
+        var now = new Date();
+        var dateStr = now.toISOString().slice(0, 10);
+        var hour = now.getHours();
+        var url = BASE_URL + "/b/suggestions/titles-" + dateStr + "-" + hour + ".js";
 
-        var url = BASE_URL + "/search?q=" + encoded;
-
-        // Append &page={n} when page > 1
-        if (filters && filters.page) {
-            var page = parseInt(filters.page, 10);
-            if (!isNaN(page) && page > 1 && page === Math.floor(page)) {
-                url = url + "&page=" + page;
-            }
+        // Encode the keyword in a fragment so parseSearchResponse can extract it
+        if (q) {
+            url = url + "#q=" + encodeURIComponent(q);
         }
 
         return url;
@@ -376,79 +375,89 @@ function _parseListingHtml(html) {
     try {
         var items = [];
 
-        // Match anchor elements whose href contains /movie/{slug}~{id} or /tv/{slug}~{id}
-        // The pattern captures the card/item block containing the anchor, poster image, and metadata
-        var cardRegex = /<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/((?:movie|tv)\/[^"']+~\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-        var cardMatch;
+        // Primary: parse __NEXT_DATA__ apolloState (most reliable)
+        var nextDataMatch = html.match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+        if (nextDataMatch) {
+            try {
+                var nextData = JSON.parse(nextDataMatch[1]);
+                var apolloState = nextData && nextData.props && nextData.props.apolloState;
+                if (apolloState) {
+                    // Collect Title entries in order they appear in query results
+                    var titleIds = [];
+                    for (var qKey in apolloState) {
+                        if (!apolloState.hasOwnProperty(qKey)) continue;
+                        var qVal = apolloState[qKey];
+                        if (qVal && qVal.nodes && Array.isArray(qVal.nodes)) {
+                            for (var ni = 0; ni < qVal.nodes.length; ni++) {
+                                var nodeRef = qVal.nodes[ni];
+                                if (nodeRef && nodeRef.id && nodeRef.id.indexOf("Title:") === 0) {
+                                    var tid = nodeRef.id.replace("Title:", "");
+                                    if (titleIds.indexOf(tid) === -1) titleIds.push(tid);
+                                }
+                            }
+                        }
+                    }
 
-        while ((cardMatch = cardRegex.exec(html)) !== null) {
-            var id = cardMatch[1];
-            var innerHtml = cardMatch[2];
+                    for (var ti = 0; ti < titleIds.length; ti++) {
+                        var entry = apolloState["Title:" + titleIds[ti]];
+                        if (!entry || !entry.id) continue;
+                        var nameVi = entry.nameVi || entry.nameEn || "";
+                        var nameEn = entry.nameEn || "";
+                        if (!nameVi) continue;
 
-            // Extract title - look for text content, heading elements, or title attributes
-            var title = "";
+                        var type = entry.type === "movie" ? "movie" : "tv";
+                        var slug = (nameEn || nameVi).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+                        var itemId = type + "/" + slug + "~" + entry.id;
+                        var tmdbPoster = entry.tmdbPoster ? "https://image.tmdb.org/t/p/w500" + entry.tmdbPoster : "";
 
-            // Try to find title in heading elements inside the anchor
-            var headingMatch = innerHtml.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
-            if (headingMatch) {
-                title = cleanText(headingMatch[1]);
-            }
+                        items.push({
+                            id: itemId,
+                            title: nameVi,
+                            originName: nameEn,
+                            posterUrl: tmdbPoster,
+                            year: entry.publishDate ? parseInt(entry.publishDate.substring(0, 4), 10) || 0 : 0
+                        });
+                    }
+                }
+            } catch (e) {}
+        }
 
-            // If no heading, try to find a title/alt attribute or span with title class
-            if (!title) {
-                var titleSpanMatch = innerHtml.match(/<(?:span|p|div)[^>]*class="[^"]*title[^"]*"[^>]*>([\s\S]*?)<\/(?:span|p|div)>/i);
-                if (titleSpanMatch) {
-                    title = cleanText(titleSpanMatch[1]);
+        // Fallback: parse HTML anchor tags if __NEXT_DATA__ didn't work
+        if (items.length === 0) {
+            // Match any <a> whose href contains /(movie|tv)/slug~id pattern,
+            // regardless of class name or attribute order.
+            var anchorRegex = /<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/((?:movie|tv)\/[^"']+~\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+            var anchorMatch;
+            while ((anchorMatch = anchorRegex.exec(html)) !== null) {
+                var aId = anchorMatch[1];
+                var aInner = anchorMatch[2];
+                var aPoster = "";
+                var aImg = aInner.match(/<img[^>]*src=["']([^"']+)["']/i);
+                if (aImg) aPoster = absoluteUrl(aImg[1]);
+                var aTitle = "";
+                // Try <h3> first (most common in listing items)
+                var aH3 = aInner.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+                if (aH3) {
+                    aTitle = cleanText(aH3[1]);
+                }
+                // Fallback to img alt attribute
+                if (!aTitle) {
+                    var aAlt = aInner.match(/<img[^>]*alt=["']([^"']+)["']/i);
+                    if (aAlt) aTitle = cleanText(aAlt[1]);
+                }
+
+                // Skip items with empty title
+                if (!aTitle) continue;
+
+                // Check if already added
+                var aExists = false;
+                for (var ei = 0; ei < items.length; ei++) {
+                    if (items[ei].id === aId) { aExists = true; break; }
+                }
+                if (!aExists) {
+                    items.push({ id: aId, title: aTitle, posterUrl: aPoster });
                 }
             }
-
-            // If still no title, use the cleaned text content of the anchor
-            if (!title) {
-                // Remove img tags first to avoid alt text pollution, then clean
-                var textContent = innerHtml.replace(/<img[^>]*>/gi, "");
-                title = cleanText(textContent);
-            }
-
-            // Skip items with empty title
-            if (!title) {
-                continue;
-            }
-
-            // Extract poster URL from img element
-            var posterUrl = "";
-            var imgMatch = innerHtml.match(/<img[^>]*src=["']([^"']+)["'][^>]*>/i);
-            if (imgMatch) {
-                posterUrl = absoluteUrl(imgMatch[1]);
-            }
-            // Also check data-src for lazy-loaded images
-            if (!posterUrl) {
-                var dataSrcMatch = innerHtml.match(/<img[^>]*data-src=["']([^"']+)["'][^>]*>/i);
-                if (dataSrcMatch) {
-                    posterUrl = absoluteUrl(dataSrcMatch[1]);
-                }
-            }
-
-            // Extract originName (Vietnamese title) - often in a secondary element
-            var originName = "";
-            var originMatch = innerHtml.match(/<(?:span|p|div)[^>]*class="[^"]*(?:origin|vietnamese|sub-title|alt-title)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|p|div)>/i);
-            if (originMatch) {
-                originName = cleanText(originMatch[1]);
-            }
-
-            // Extract episode_current - look for episode status text
-            var episodeCurrent = "";
-            var epMatch = innerHtml.match(/<(?:span|div)[^>]*class="[^"]*(?:episode|status|ep)[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i);
-            if (epMatch) {
-                episodeCurrent = cleanText(epMatch[1]);
-            }
-
-            items.push({
-                id: id,
-                title: title,
-                originName: originName,
-                posterUrl: posterUrl,
-                episode_current: episodeCurrent
-            });
         }
 
         var pagination = extractPagination(html);
@@ -475,17 +484,77 @@ function parseListResponse(html) {
 }
 
 /**
- * Parse search results page HTML into items array and pagination object.
- * Search results on PhimPal have the same HTML structure as listing pages,
- * so this delegates directly to the shared internal parsing function.
- * Returns a JSON string: {items:[{id, title, originName, posterUrl, episode_current}], pagination:{currentPage, totalPages}}
+ * Parse search results from PhimPal's suggestions JSON file.
+ * The suggestions file is a JSON array of arrays:
+ *   [[id, nameEn, nameVi, imgUri, type, imdbId], ...]
+ * The keyword is passed via URL fragment (#q=...) from getUrlSearch.
+ * If the input looks like HTML (legacy fallback), delegates to _parseListingHtml.
+ * Returns a JSON string: {items:[{id, title, originName, posterUrl}], pagination:{currentPage, totalPages}}
  */
-function parseSearchResponse(html) {
+function parseSearchResponse(apiResponseJson, url) {
     try {
-        if (html === null || html === undefined || typeof html !== "string") {
+        if (apiResponseJson === null || apiResponseJson === undefined || typeof apiResponseJson !== "string") {
             return '{"items":[],"pagination":{"currentPage":1,"totalPages":1}}';
         }
-        return _parseListingHtml(html);
+
+        // If it starts with '<', it's HTML — use the listing parser as fallback
+        var trimmed = apiResponseJson.replace(/^\s+/, "");
+        if (trimmed.indexOf("<") === 0 || trimmed.indexOf("<!") === 0) {
+            return _parseListingHtml(apiResponseJson);
+        }
+
+        // Parse as JSON array (suggestions format)
+        var allItems = JSON.parse(apiResponseJson);
+        if (!Array.isArray(allItems)) {
+            return '{"items":[],"pagination":{"currentPage":1,"totalPages":1}}';
+        }
+
+        // Extract keyword from URL fragment (#q=...)
+        var keyword = "";
+        if (url && typeof url === "string") {
+            var hashIdx = url.indexOf("#q=");
+            if (hashIdx !== -1) {
+                keyword = decodeURIComponent(url.substring(hashIdx + 3)).toLowerCase();
+            }
+        }
+
+        // Filter items by keyword (match against nameEn or nameVi)
+        var items = [];
+        for (var i = 0; i < allItems.length && items.length < 30; i++) {
+            var entry = allItems[i];
+            if (!Array.isArray(entry) || entry.length < 5) continue;
+
+            var entryId = entry[0];
+            var nameEn = entry[1] || "";
+            var nameVi = entry[2] || "";
+            var imgUri = entry[3] || "";
+            var entryType = entry[4] || "movie";
+
+            if (!nameVi && !nameEn) continue;
+
+            // Filter by keyword if present
+            if (keyword) {
+                var lowerEn = nameEn.toLowerCase();
+                var lowerVi = nameVi.toLowerCase();
+                if (lowerEn.indexOf(keyword) === -1 && lowerVi.indexOf(keyword) === -1) {
+                    continue;
+                }
+            }
+
+            var type = (entryType === "show" || entryType === "tv") ? "tv" : "movie";
+            var slug = (nameEn || nameVi).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            var itemId = type + "/" + slug + "~" + entryId;
+            var posterUrl = imgUri ? "https://image.tmdb.org/t/p/w500" + imgUri : "";
+
+            items.push({
+                id: itemId,
+                title: nameVi || nameEn,
+                originName: nameEn,
+                posterUrl: posterUrl
+            });
+        }
+
+        return JSON.stringify({ items: items, pagination: { currentPage: 1, totalPages: 1 } });
     } catch (e) {
         return '{"items":[],"pagination":{"currentPage":1,"totalPages":1}}';
     }
@@ -803,9 +872,9 @@ function parseMovieDetail(html) {
                 }
             } else {
                 // Movie page: find "XEM PHIM" watch link with /watch/{id} href
-                var watchMatch = html.match(/<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/(\d+)["'][^>]*>[\s\S]*?XEM\s*PHIM[\s\S]*?<\/a>/i);
+                var watchMatch = html.match(/<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/([^"']+)["'][^>]*>[\s\S]*?XEM\s*PHIM[\s\S]*?<\/a>/i);
                 if (!watchMatch) {
-                    watchMatch = html.match(/<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/(\d+)["'][^>]*>[^<]*XEM[^<]*PHIM[^<]*<\/a>/i);
+                    watchMatch = html.match(/<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/([^"']+)["'][^>]*>[^<]*XEM[^<]*PHIM[^<]*<\/a>/i);
                 }
                 if (watchMatch) {
                     var watchId2 = watchMatch[1];
@@ -817,16 +886,13 @@ function parseMovieDetail(html) {
                     });
                 } else {
                     // Season page: detect multiple episode links matching /watch/{id}
-                    var episodeLinkRegex = /<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/(\d+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+                    var episodeLinkRegex = /<a[^>]*href=["'](?:https?:\/\/[^"']*?)?\/watch\/([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
                     var epLinkMatch;
                     var fbEpisodes = [];
-                    var seenEpIds = {};
                     while ((epLinkMatch = episodeLinkRegex.exec(html)) !== null) {
                         var epId = epLinkMatch[1];
                         var epText = cleanText(epLinkMatch[2]);
                         if (!epText) continue;
-                        if (seenEpIds[epId]) continue;
-                        seenEpIds[epId] = true;
                         fbEpisodes.push({
                             id: "watch/" + epId,
                             slug: "watch/" + epId,

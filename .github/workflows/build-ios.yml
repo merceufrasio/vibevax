@@ -2,7 +2,7 @@ name: Build iOS IPA
 
 on:
   push:
-    branches: [feature/anime-poster-module, main]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -120,7 +120,7 @@ jobs:
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          SCHEME="ReVax"
+          SCHEME="VibeVax"
           echo "Building $SCHEME with SDK $IOS_SDK"
           cat > ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -145,7 +145,7 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath build/ReVax.xcarchive \
+            -archivePath build/VibeVax.xcarchive \
             -sdk "$IOS_SDK" \
             CODE_SIGN_STYLE=Manual \
             "PROVISIONING_PROFILE=${PROFILE_UUID}" \
@@ -156,13 +156,13 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=15.1 \
             -allowProvisioningUpdates
           xcodebuild -exportArchive \
-            -archivePath build/ReVax.xcarchive \
+            -archivePath build/VibeVax.xcarchive \
             -exportPath build/output \
             -exportOptionsPlist ExportOptions.plist
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ReVax-iOS
+          name: VibeVax-iOS
           path: ios/build/output/*.ipa
           retention-days: 30

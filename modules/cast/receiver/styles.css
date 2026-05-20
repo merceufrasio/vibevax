@@ -1,0 +1,152 @@
+/* ReVax Cast Receiver - Minimal UI */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #fff;
+}
+
+#receiver {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Video player - fills entire screen */
+#player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  z-index: 1;
+}
+
+/* Media overlay - shown during loading and buffering */
+#media-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+#media-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#poster {
+  max-width: 240px;
+  max-height: 340px;
+  border-radius: 8px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  margin-bottom: 24px;
+  object-fit: cover;
+}
+
+#poster[src=""] {
+  display: none;
+}
+
+#media-info {
+  text-align: center;
+  max-width: 600px;
+  padding: 0 24px;
+}
+
+#media-title {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+#media-subtitle {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Loading spinner */
+#spinner {
+  margin-top: 32px;
+}
+
+#spinner.hidden {
+  display: none;
+}
+
+.spinner-ring {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Idle screen - shown when no media is loaded */
+#idle-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  z-index: 5;
+  transition: opacity 0.3s ease;
+}
+
+#idle-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#idle-screen h1 {
+  font-size: 48px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  letter-spacing: 2px;
+}
+
+#idle-screen p {
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+}

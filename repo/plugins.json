@@ -18,7 +18,7 @@
         {
             "id": "nguonc",
             "name": "Phim NguonC",
-            "version": "1.0.7",
+            "version": "1.0.8",
             "scriptUrl": "https://raw.githubusercontent.com/youngbi/repo/main/plugins/nguonc_plugin.js",
             "iconUrl": "https://raw.githubusercontent.com/youngbi/repo/main/plugins/nguonC.png"
         },

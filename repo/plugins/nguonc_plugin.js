@@ -6,7 +6,7 @@ function getManifest() {
     return JSON.stringify({
         "id": "nguonc",
         "name": "Phim NguonC",
-        "version": "1.0.7",
+        "version": "1.0.8",
         "baseUrl": "https://phim.nguonc.com",
         "iconUrl": "https://stpaulclinic.vn/vaapp/plugins/nguonC.png",
         "isEnabled": true,
@@ -258,6 +258,7 @@ function parseMovieDetail(apiResponseJson) {
         return JSON.stringify({
             id: movie.slug || "",
             title: movie.name || "",
+            originName: movie.original_name || movie.origin_name || "",
             posterUrl: getImageUrl(movie.thumb_url),
             backdropUrl: getImageUrl(movie.poster_url),
             description: (movie.description || movie.content || "").replace(/<[^>]*>/g, ""),
@@ -380,73 +381,21 @@ function getImageUrl(path) {
 // =============================================================================
 // EMBED RESPONSE PARSER
 // =============================================================================
-
-/**
- * Parse embed page HTML from streamc.xyz to extract the actual m3u8 stream URL.
- * The embed page contains obfuscated data in data-obf attribute.
- * Decode: base64(JSON) → {sUb: "base64_token", hD: "hash"}
- * Stream URL = https://{embedHost}/{sUb}.m3u8
- * Referer must be the embed page URL.
- */
-function parseEmbedResponse(html, embedUrl) {
-    try {
-        if (!html || typeof html !== "string") return "{}";
-
-        // Extract data-obf attribute from player div
-        var obfMatch = html.match(/data-obf=["']([^"']+)["']/i);
-        if (!obfMatch) return "{}";
-
-        // Decode base64 → JSON
-        var obfJson = null;
-        try {
-            // atob equivalent for Node/plugin context
-            var decoded = "";
-            if (typeof atob === "function") {
-                decoded = atob(obfMatch[1]);
-            } else {
-                // Manual base64 decode (ES5 compatible)
-                var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-                var str = obfMatch[1].replace(/[^A-Za-z0-9+/=]/g, "");
-                var output = "";
-                for (var i = 0; i < str.length; i += 4) {
-                    var a = chars.indexOf(str.charAt(i));
-                    var b = chars.indexOf(str.charAt(i + 1));
-                    var c = chars.indexOf(str.charAt(i + 2));
-                    var d = chars.indexOf(str.charAt(i + 3));
-                    output += String.fromCharCode((a << 2) | (b >> 4));
-                    if (c !== 64) output += String.fromCharCode(((b & 15) << 4) | (c >> 2));
-                    if (d !== 64) output += String.fromCharCode(((c & 3) << 6) | d);
-                }
-                decoded = output;
-            }
-            obfJson = JSON.parse(decoded);
-        } catch (e) {
-            return "{}";
-        }
-
-        if (!obfJson || !obfJson.sUb) return "{}";
-
-        // Extract embed host from URL (embed13.streamc.xyz, embed15.streamc.xyz, etc.)
-        var embedHost = "";
-        if (embedUrl) {
-            var hostMatch = embedUrl.match(/https?:\/\/([^/]+)/);
-            if (hostMatch) embedHost = hostMatch[1];
-        }
-        if (!embedHost) embedHost = "embed15.streamc.xyz";
-
-        // Build m3u8 URL: https://{embedHost}/{sUb}.m3u8
-        var streamUrl = "https://" + embedHost + "/" + obfJson.sUb + ".m3u8";
-
-        return JSON.stringify({
-            url: streamUrl,
-            isEmbed: false,
-            headers: {
-                "Referer": embedUrl || "https://streamc.xyz/",
-                "Origin": "https://" + embedHost,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-        });
-    } catch (e) {
-        return "{}";
-    }
-}
+//
+// NOTE: parseEmbedResponse intentionally NOT defined for nguonc.
+//
+// streamc.xyz embeds use an obfuscated data-obf attribute that decodes to a
+// stream token. We could extract the m3u8 URL from this, but the m3u8
+// requires a `Referer` header pointing to the embed page. Native iOS AVPlayer
+// (expo-video) cannot send custom Referer headers, so the m3u8 approach
+// fails with 403 / black screen.
+//
+// Without parseEmbedResponse, the app's resolveStream skips the fetch+parse
+// step entirely and renders the embed.php URL inside a WebView iframe with
+// the source's baseUrl (https://phim.nguonc.com) as Referer. This matches
+// what a real browser sends when the embed is loaded from phim.nguonc.com,
+// so streamc.xyz returns the player as expected.
+//
+// Ad-block rules in MoviePlayer.tsx (SOURCE_SPECIFIC_BLOCK_RULES.nguonc)
+// still run inside the WebView and block the streamc.xyz/1.mp4 ad.
+//

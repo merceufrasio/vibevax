@@ -95,7 +95,7 @@ export function AppLoadingScreen() {
         />
       </View>
 
-      <Text style={styles.brand}>ReVax</Text>
+      <Text style={styles.brand}>VibeVax</Text>
 
       <View style={styles.dots}>
         {dots.map((dot, index) => (

@@ -1,0 +1,16 @@
+fetch("https://ivjn18ppq1.sssrr.org/sora/124027121/TEZsNG1ZVDl2aWNTV2t3aFZjdzNhdTNPT2hpUDU3K21LVGFoc0RHUEs1MWc2NkE", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5",
+    "priority": "u=1, i",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site"
+  },
+  "referrer": "https://abysscdn.com/",
+  "body": null,
+  "method": "GET",
+  "mode": "cors",
+  "credentials": "omit"
+});
+

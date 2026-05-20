@@ -132,7 +132,7 @@ export default function HomeScreen() {
                 source={require("../../assets/images/revax-app-icon.png")}
                 style={styles.brandIcon}
               />
-              <Text style={styles.brandText}>ReVax</Text>
+              <Text style={styles.brandText}>VibeVax</Text>
             </View>
             <IconButton
               icon={<Ionicons color={Colors.text.primary} name="search" size={20} />}

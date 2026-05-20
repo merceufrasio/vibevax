@@ -309,6 +309,12 @@ export class SourceRepository {
       url,
     );
 
+    if (__DEV__ && this.pluginItem.id === "phimpal" && parsed.items?.length) {
+      console.log("[SourceRepository:getList:phimpal:posters]", {
+        first3: parsed.items.slice(0, 3).map((i) => ({ id: i.id, poster: i.posterUrl })),
+      });
+    }
+
     return {
       items: (parsed.items ?? [])
         .map((item) => normalizeItem(this.pluginItem.id, item))
@@ -439,11 +445,23 @@ export class SourceRepository {
         // Fall through: use WebView embed with the original embed URL
       }
 
+      // For embed URLs, preserve manifest.baseUrl as Referer so the
+      // WebView iframe wrapper uses it as baseUrl. Embed servers (e.g.
+      // streamc.xyz) often check Referer and reject requests from
+      // unrelated domains. Using the source site's baseUrl as Referer
+      // matches what a real browser would send when the embed is loaded
+      // from the source site.
+      const fallbackHeaders: Record<string, string> | undefined =
+        !isDirectStream && this.manifest.baseUrl
+          ? { Referer: this.manifest.baseUrl.replace(/\/$/, "") + "/" }
+          : undefined;
+
       const streamResult = normalizeStreamResult({
         url: episodeId,
         isEmbed: !isDirectStream,
         sourceId: this.pluginItem.id,
         subtitles: [],
+        headers: fallbackHeaders,
       });
 
       if (__DEV__) {
@@ -451,6 +469,7 @@ export class SourceRepository {
           episodeId: episodeId.substring(0, 80),
           isEmbed: streamResult.isEmbed,
           url: streamResult.url?.substring(0, 80),
+          referer: fallbackHeaders?.Referer,
         });
       }
 

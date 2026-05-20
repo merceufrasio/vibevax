@@ -258,12 +258,12 @@ export default function MovieDetailScreen() {
                     horizontal
                     showsHorizontalScrollIndicator={false}
                   >
-                    {group.items.map((item) => {
+                    {group.items.map((item, index) => {
                       const isActive = item.id === selectedEpisodeId;
 
                       return (
                         <Pressable
-                          key={item.id}
+                          key={`${item.id}-${index}`}
                           onPress={() => {
                             setSelectedEpisodeId(item.id);
                             void handleWatch(item.id);

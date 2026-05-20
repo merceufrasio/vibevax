@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -22,6 +22,11 @@ import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 import { DEFAULT_REGISTRY_URL } from "@/sources/pluginRegistry";
+import { SourceRepository } from "@/sources/sourceRepository";
+import {
+  isSourceChallengeRequiredError,
+  subscribeToSourceChallenge,
+} from "@/sources/sourceChallenge";
 import type { AdBlockLogEntry } from "@/sources/types";
 import { clearAdBlockLogs, loadAdBlockLogs } from "@/utils/adBlockLogger";
 
@@ -151,7 +156,32 @@ export default function SettingsScreen() {
             return (
               <Pressable
                 key={plugin.id}
-                onPress={() => setActiveSource(plugin.id)}
+                onPress={async () => {
+                  await setActiveSource(plugin.id);
+
+                  // Try a quick fetch to detect if Cloudflare verification is needed
+                  // If so, navigate directly to verify screen instead of going back to Home
+                  try {
+                    const source = registry?.plugins.find((p) => p.id === plugin.id);
+                    if (source) {
+                      const repo = await SourceRepository.create(source);
+                      const sections = repo.getHomeSections();
+                      if (sections.length > 0) {
+                        await repo.getList(sections[0].slug, { page: 1, limit: 1 });
+                      }
+                    }
+                  } catch (verifyError) {
+                    if (isSourceChallengeRequiredError(verifyError)) {
+                      // Cloudflare detected — navigate to verify immediately
+                      router.push({
+                        pathname: "/source-verify",
+                        params: { challengeId: verifyError.challenge.id },
+                      });
+                      return;
+                    }
+                    // Other errors are fine — Home will handle them
+                  }
+                }}
                 style={[styles.pluginRow, isActive ? styles.pluginRowActive : null]}
               >
                 <Image

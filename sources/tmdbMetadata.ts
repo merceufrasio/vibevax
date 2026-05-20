@@ -1,56 +1,63 @@
+/**
+ * Source-detail metadata enrichment shim.
+ *
+ * Historically this file owned a self-contained TMDB lookup pipeline gated
+ * behind an `ophim/kkphim/nguonc` allow-list. That pipeline now lives in
+ * `modules/tmdb/` and runs universally for all sources (Requirements 5.1,
+ * 5.5). This shim is kept so existing callers — notably
+ * {@link "@/hooks/useSourceMovieDetail"} — can continue importing from
+ * `@/sources/tmdbMetadata` without changes.
+ *
+ * Responsibilities of this shim:
+ *
+ *   1. Delegate the TMDB enrichment step to the centralized
+ *      `modules/tmdb` enricher. The inner enricher already swallows its
+ *      own errors and returns the original detail on any failure
+ *      (Requirement 5.4), so a missed TMDB lookup never blocks rendering.
+ *   2. After TMDB enrichment, run the MissAV-specific avatar scraping
+ *      pass for MissAV sources only. The MissAV pass uses the parsed
+ *      `[name](slug)` cast entries to fetch each actress page and pull
+ *      the `og:image` / avatar URL out of the rendered HTML. This is
+ *      MissAV-only because the slugs come straight from the MissAV
+ *      plugin output.
+ *
+ * **Validates: Requirements 5.1, 5.4, 5.5**
+ */
+
+import { enrichSourceMovieDetailWithMetadata as enrichWithTmdb } from "@/modules/tmdb";
 import type { SourceMovieDetail } from "@/sources/types";
 
-const TMDB_API_BASE_URL = "https://api.themoviedb.org/3";
-const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w185";
-const TMDB_SOURCE_IDS = new Set(["ophim", "kkphim", "nguonc"]);
+/**
+ * Source-id → MissAV base URL. Used to resolve actress slug links into
+ * absolute URLs for the avatar scraping pass.
+ */
 const MISSAV_SOURCE_BASE_URLS: Record<string, string> = {
   missav: "https://missav123.com",
   missav2: "https://missav.media",
 };
 
-type TmdbCastEntry = {
-  name?: string;
-  original_name?: string;
-  profile_path?: string | null;
-};
-
-type TmdbSearchResult = {
-  id: number;
-  media_type?: string;
-  title?: string;
-  name?: string;
-  original_title?: string;
-  original_name?: string;
-  release_date?: string;
-  first_air_date?: string;
-  popularity?: number;
-};
-
+/**
+ * Internal shape produced by {@link parseCastEntries}. The `slug` field is
+ * only populated when the source plugin emits cast entries in the linked
+ * `[name](slug)` form (currently only the MissAV plugins).
+ */
 type ParsedCastEntry = {
   name: string;
   slug?: string;
 };
 
-function getTmdbCredentials() {
-  const apiKey = process.env.EXPO_PUBLIC_TMDB_API_KEY?.trim();
-  const bearerToken = process.env.EXPO_PUBLIC_TMDB_BEARER_TOKEN?.trim();
-
-  return {
-    apiKey: apiKey || undefined,
-    bearerToken: bearerToken || undefined,
-  };
-}
-
-function normalizeName(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function parseCastEntries(value?: string) {
+/**
+ * Parse a comma-separated cast string into structured entries.
+ *
+ * Accepts both bare names (`"Alice, Bob"`) and the linked form
+ * (`"[Alice](alice-slug), [Bob](bob-slug)"`). Duplicate names are de-duped
+ * by collapsing to the first occurrence.
+ *
+ * Kept in this file because the MissAV avatar scraper still needs the
+ * `slug` field. The TMDB pipeline parses cast separately inside
+ * `modules/tmdb`.
+ */
+function parseCastEntries(value?: string): ParsedCastEntry[] {
   return Array.from(
     new Map(
       (value ?? "")
@@ -74,235 +81,11 @@ function parseCastEntries(value?: string) {
   );
 }
 
-function getCreditsPath(detail: Pick<SourceMovieDetail, "tmdbId" | "tmdbType">) {
-  const normalizedType = (detail.tmdbType ?? "").toLowerCase();
-
-  if (
-    normalizedType.includes("tv") ||
-    normalizedType.includes("series") ||
-    normalizedType.includes("show")
-  ) {
-    return `/tv/${detail.tmdbId}/credits`;
-  }
-
-  return `/movie/${detail.tmdbId}/credits`;
-}
-
-async function tmdbFetchJson<T>(path: string, searchParams?: Record<string, string>) {
-  const { apiKey, bearerToken } = getTmdbCredentials();
-
-  if (!apiKey && !bearerToken) {
-    return null;
-  }
-
-  const endpoint = new URL(`${TMDB_API_BASE_URL}${path}`);
-
-  Object.entries(searchParams ?? {}).forEach(([key, value]) => {
-    endpoint.searchParams.set(key, value);
-  });
-
-  if (apiKey) {
-    endpoint.searchParams.set("api_key", apiKey);
-  }
-
-  const response = await fetch(endpoint.toString(), {
-    headers: bearerToken
-      ? {
-          Authorization: `Bearer ${bearerToken}`,
-        }
-      : undefined,
-  });
-
-  if (!response.ok) {
-    throw new Error(`TMDB request failed: ${response.status}`);
-  }
-
-  return (await response.json()) as T;
-}
-
-async function fetchCredits(detail: Pick<SourceMovieDetail, "tmdbId" | "tmdbType">) {
-  if (!detail.tmdbId) {
-    return null;
-  }
-
-  return tmdbFetchJson<{ cast?: TmdbCastEntry[] }>(getCreditsPath(detail), {
-    language: "vi-VN",
-  });
-}
-
-function getYear(value?: string) {
-  const match = value?.match(/^(\d{4})/);
-  return match ? Number(match[1]) : undefined;
-}
-
-function scoreTmdbCandidate(
-  result: TmdbSearchResult,
-  detail: SourceMovieDetail,
-  normalizedTargetTitle: string,
-) {
-  const candidateName =
-    result.title ||
-    result.name ||
-    result.original_title ||
-    result.original_name ||
-    "";
-  const normalizedCandidateName = normalizeName(candidateName);
-
-  let score = 0;
-  if (normalizedCandidateName === normalizedTargetTitle) {
-    score += 120;
-  } else if (
-    normalizedCandidateName.includes(normalizedTargetTitle) ||
-    normalizedTargetTitle.includes(normalizedCandidateName)
-  ) {
-    score += 80;
-  }
-
-  const expectedYear = Number(detail.year || 0) || undefined;
-  const candidateYear = getYear(result.release_date) ?? getYear(result.first_air_date);
-
-  if (expectedYear && candidateYear) {
-    const yearDelta = Math.abs(expectedYear - candidateYear);
-    if (yearDelta === 0) score += 30;
-    else if (yearDelta === 1) score += 12;
-    else if (yearDelta <= 2) score += 4;
-  }
-
-  score += Math.min(Number(result.popularity || 0), 25);
-
-  return score;
-}
-
-async function resolveTmdbIdentity(detail: SourceMovieDetail) {
-  if (detail.tmdbId) {
-    return {
-      tmdbId: detail.tmdbId,
-      tmdbType: detail.tmdbType || "movie",
-    };
-  }
-
-  if (!TMDB_SOURCE_IDS.has(detail.sourceId)) {
-    return null;
-  }
-
-  const rawTitle = detail.originName || detail.title;
-  if (!rawTitle) {
-    return null;
-  }
-
-  const normalizedTargetTitle = normalizeName(rawTitle);
-  const commonParams = {
-    language: "vi-VN",
-    query: rawTitle,
-  } as Record<string, string>;
-
-  if (detail.year) {
-    commonParams.year = String(detail.year);
-    commonParams.first_air_date_year = String(detail.year);
-  }
-
-  const [movieSearch, tvSearch] = await Promise.all([
-    tmdbFetchJson<{ results?: TmdbSearchResult[] }>("/search/movie", commonParams),
-    tmdbFetchJson<{ results?: TmdbSearchResult[] }>("/search/tv", commonParams),
-  ]);
-
-  const candidates = [
-    ...((movieSearch?.results ?? []).map((result) => ({
-      ...result,
-      media_type: "movie",
-    })) as TmdbSearchResult[]),
-    ...((tvSearch?.results ?? []).map((result) => ({
-      ...result,
-      media_type: "tv",
-    })) as TmdbSearchResult[]),
-  ];
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  const bestCandidate = [...candidates].sort(
-    (left, right) =>
-      scoreTmdbCandidate(right, detail, normalizedTargetTitle) -
-      scoreTmdbCandidate(left, detail, normalizedTargetTitle),
-  )[0];
-
-  if (!bestCandidate?.id || !bestCandidate.media_type) {
-    return null;
-  }
-
-  return {
-    tmdbId: String(bestCandidate.id),
-    tmdbType: bestCandidate.media_type,
-  };
-}
-
-function buildCastProfiles(desiredEntries: ParsedCastEntry[], castEntries: TmdbCastEntry[]) {
-  const remainingEntries = [...castEntries];
-  const profiles: Record<string, string> = {};
-
-  for (const desiredEntry of desiredEntries) {
-    const normalizedDesiredName = normalizeName(desiredEntry.name);
-
-    const entryIndex = remainingEntries.findIndex((entry) => {
-      const candidates = [entry.name, entry.original_name]
-        .filter(Boolean)
-        .map((candidate) => normalizeName(candidate as string));
-
-      return candidates.some(
-        (candidate) =>
-          candidate === normalizedDesiredName ||
-          candidate.includes(normalizedDesiredName) ||
-          normalizedDesiredName.includes(candidate),
-      );
-    });
-
-    if (entryIndex === -1) {
-      continue;
-    }
-
-    const [matchedEntry] = remainingEntries.splice(entryIndex, 1);
-    if (matchedEntry.profile_path) {
-      profiles[desiredEntry.name] = `${TMDB_IMAGE_BASE_URL}${matchedEntry.profile_path}`;
-    }
-  }
-
-  return profiles;
-}
-
-async function enrichWithTmdb(detail: SourceMovieDetail, castEntries: ParsedCastEntry[]) {
-  const identity = await resolveTmdbIdentity(detail);
-  if (!identity?.tmdbId) {
-    return detail;
-  }
-
-  const payload = await fetchCredits(identity);
-  const tmdbCastEntries = payload?.cast ?? [];
-
-  if (!tmdbCastEntries.length) {
-    return {
-      ...detail,
-      tmdbId: identity.tmdbId,
-      tmdbType: identity.tmdbType,
-    };
-  }
-
-  const castProfiles = buildCastProfiles(castEntries, tmdbCastEntries);
-
-  return {
-    ...detail,
-    tmdbId: identity.tmdbId,
-    tmdbType: identity.tmdbType,
-    castProfiles:
-      Object.keys(castProfiles).length > 0
-        ? {
-            ...(detail.castProfiles ?? {}),
-            ...castProfiles,
-          }
-        : detail.castProfiles,
-  };
-}
-
+/**
+ * Resolve a MissAV actress slug to an absolute actress page URL using the
+ * source-specific base URL. Returns `null` when the slug is missing or the
+ * source is not a MissAV source.
+ */
 function getMissavActressUrl(sourceId: string, slug?: string) {
   if (!slug) {
     return null;
@@ -324,6 +107,11 @@ function getMissavActressUrl(sourceId: string, slug?: string) {
   return `${baseUrl}/${slug}`;
 }
 
+/**
+ * Extract the avatar image URL from a MissAV actress page HTML. Tries
+ * `<meta property="og:image">` first, then `<meta name="twitter:image">`,
+ * then falls back to the first `<img>` tag inside the actress card.
+ */
 function extractMissavAvatar(html: string) {
   const metaMatch =
     html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i) ||
@@ -340,10 +128,16 @@ function extractMissavAvatar(html: string) {
   return imgMatch?.[1] || null;
 }
 
+/**
+ * Fetch each MissAV actress page and merge the resolved avatar URLs into
+ * `detail.castProfiles`. Existing entries (from the plugin or from the
+ * upstream TMDB pass) are preserved. Errors on any individual fetch are
+ * swallowed — best-effort enrichment.
+ */
 async function enrichWithMissavAvatars(
   detail: SourceMovieDetail,
   castEntries: ParsedCastEntry[],
-) {
+): Promise<SourceMovieDetail> {
   if (!(detail.sourceId in MISSAV_SOURCE_BASE_URLS)) {
     return detail;
   }
@@ -404,30 +198,57 @@ async function enrichWithMissavAvatars(
   };
 }
 
+/**
+ * Enrich a {@link SourceMovieDetail} with TMDB metadata followed by
+ * MissAV-specific avatar scraping.
+ *
+ * Step 1 — TMDB: delegated to {@link "@/modules/tmdb"}. The new module
+ * runs for every source (the legacy `ophim/kkphim/nguonc` allow-list is
+ * gone) and handles its own caching, rate limiting, and error swallowing.
+ *
+ * Step 2 — MissAV avatars: only runs for MissAV sources. Any failure here
+ * is caught and the prior (TMDB-enriched) detail is returned unchanged so
+ * rendering is never blocked.
+ *
+ * **Validates: Requirements 5.1, 5.4, 5.5**
+ *
+ * @param detail Source movie detail straight from `SourceRepository`.
+ * @returns A new detail with merged metadata, or the original `detail`
+ *          reference when no enrichment applies.
+ */
 export async function enrichSourceMovieDetailWithMetadata(
   detail: SourceMovieDetail,
-) {
-  const castEntries = parseCastEntries(detail.casts);
-  if (!castEntries.length) {
-    return detail;
-  }
-
+): Promise<SourceMovieDetail> {
   let enrichedDetail = detail;
 
   try {
-    if (TMDB_SOURCE_IDS.has(detail.sourceId)) {
-      enrichedDetail = await enrichWithTmdb(enrichedDetail, castEntries);
+    enrichedDetail = await enrichWithTmdb(enrichedDetail);
+    if (enrichedDetail !== detail) {
+      console.log("[tmdb:enrich] enriched", {
+        sourceId: detail.sourceId,
+        title: detail.title,
+        hasCastProfiles: !!enrichedDetail.castProfiles && Object.keys(enrichedDetail.castProfiles).length > 0,
+        posterChanged: enrichedDetail.posterUrl !== detail.posterUrl,
+      });
+    } else {
+      console.log("[tmdb:enrich] no change", { sourceId: detail.sourceId, title: detail.title });
     }
   } catch {
+    // Defensive: the inner enricher already swallows its own errors, but
+    // we keep this guard so any future regression cannot break the host
+    // app (Requirement 5.4).
     enrichedDetail = detail;
   }
 
-  try {
-    if (detail.sourceId in MISSAV_SOURCE_BASE_URLS) {
-      enrichedDetail = await enrichWithMissavAvatars(enrichedDetail, castEntries);
+  if (detail.sourceId in MISSAV_SOURCE_BASE_URLS) {
+    try {
+      const castEntries = parseCastEntries(detail.casts);
+      if (castEntries.length) {
+        enrichedDetail = await enrichWithMissavAvatars(enrichedDetail, castEntries);
+      }
+    } catch {
+      // Keep prior metadata if MissAV avatar scraping fails.
     }
-  } catch {
-    // Keep prior metadata if MissAV avatar scraping fails.
   }
 
   return enrichedDetail;
