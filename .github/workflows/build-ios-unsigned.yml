@@ -39,6 +39,12 @@ jobs:
           RCT_NEW_ARCH_ENABLED: "0"
         run: npx expo prebuild --platform ios --clean
 
+      - name: Cache CocoaPods specs
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: cocoapods-specs-${{ runner.os }}
+
       - name: Install CocoaPods
         env:
           RCT_NEW_ARCH_ENABLED: "0"
