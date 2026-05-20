@@ -1,0 +1,122 @@
+name: Build iOS IPA (Unsigned)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios-unsigned:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          else
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          xcodebuild -version
+          IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
+          echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
+          xcodebuild -downloadPlatform iOS || true
+          xcrun simctl list 2>/dev/null || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Prebuild iOS
+        env:
+          RCT_NEW_ARCH_ENABLED: "0"
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        env:
+          RCT_NEW_ARCH_ENABLED: "0"
+        run: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod install --repo-update
+
+      - name: Create folly coro stubs
+        run: |
+          cd ios
+          chmod -R u+w Pods/ 2>/dev/null || true
+          python3 << 'EOF'
+          import os
+
+          stub = """#pragma once
+          #define FOLLY_HAS_COROUTINES 0
+          #define FOLLY_CFG_NO_COROUTINES 1
+          namespace folly { namespace coro {
+          template <typename T = void> struct coroutine_handle {
+            static coroutine_handle from_address(void*) noexcept { return {}; }
+            void* address() const noexcept { return nullptr; }
+          };
+          template <typename Promise = void> using coroutine_handle_t = coroutine_handle<Promise>;
+          struct suspend_always { bool await_ready() const noexcept { return false; } template<typename T> void await_suspend(T) const noexcept {} void await_resume() const noexcept {} };
+          struct suspend_never { bool await_ready() const noexcept { return true; } template<typename T> void await_suspend(T) const noexcept {} void await_resume() const noexcept {} };
+          }} // namespace folly::coro
+          """
+
+          for root, dirs, files in os.walk("Pods"):
+              if "folly" in root and root.endswith("folly"):
+                  coro_dir = os.path.join(root, "coro")
+                  os.makedirs(coro_dir, exist_ok=True)
+                  path = os.path.join(coro_dir, "Coroutine.h")
+                  if not os.path.exists(path) or os.path.getsize(path) < 100:
+                      with open(path, "w") as f:
+                          f.write(stub)
+                      print(f"Created: {path}")
+
+          for root, dirs, files in os.walk("Pods/Headers"):
+              if root.endswith("RCT-Folly/folly"):
+                  coro_dir = os.path.join(root, "coro")
+                  os.makedirs(coro_dir, exist_ok=True)
+                  path = os.path.join(coro_dir, "Coroutine.h")
+                  with open(path, "w") as f:
+                      f.write(stub)
+                  print(f"Created: {path}")
+          EOF
+
+      - name: Build unsigned archive
+        run: |
+          cd ios
+          WORKSPACE=$(ls -d *.xcworkspace | head -1)
+          SCHEME="VibeVax"
+          echo "Building $SCHEME (unsigned) with SDK $IOS_SDK"
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath build/VibeVax.xcarchive \
+            -sdk "$IOS_SDK" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0 FOLLY_CFG_NO_COROUTINES=1" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.1
+
+      - name: Create unsigned IPA
+        run: |
+          cd ios
+          mkdir -p build/Payload
+          cp -r build/VibeVax.xcarchive/Products/Applications/*.app build/Payload/
+          mkdir -p build/output
+          cd build && zip -r output/VibeVax-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeVax-iOS-unsigned
+          path: ios/build/output/VibeVax-unsigned.ipa
+          retention-days: 90
