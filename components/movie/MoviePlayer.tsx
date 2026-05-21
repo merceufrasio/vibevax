@@ -527,7 +527,7 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
   // Track current time for subtitle sync (more frequent updates)
   const [subtitleTime, setSubtitleTime] = useState(0);
   useEffect(() => {
-    if (isEmbed || isImageGallery || !player || !stream.subtitles?.length) return;
+    if (isEmbed || isImageGallery || !player) return;
 
     const interval = setInterval(() => {
       if (player.currentTime > 0) {
@@ -536,7 +536,7 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
     }, 250);
 
     return () => clearInterval(interval);
-  }, [player, isEmbed, isImageGallery, stream.subtitles]);
+  }, [player, isEmbed, isImageGallery]);
 
   // Auto-enter fullscreen + landscape when native player starts playing (once only)
   useEffect(() => {
@@ -1192,22 +1192,10 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
         />
       )}
 
-      {/* Subtitle overlay for native player */}
-      {!isEmbed && !isImageGallery && !isCasting && (
+      {/* Subtitle overlay — inside container so it renders on top of video */}
+      {!isImageGallery && !isCasting && (
         <SubtitleOverlay
-          currentTime={subtitleTime}
-          subtitles={stream.subtitles}
-          movieTitle={title}
-          tmdbId={tmdbId}
-          season={season}
-          episode={episode}
-        />
-      )}
-
-      {/* Subtitle overlay for embed player (no time sync, just picker) */}
-      {isEmbed && !isImageGallery && !isCasting && (
-        <SubtitleOverlay
-          currentTime={0}
+          currentTime={isEmbed ? 0 : subtitleTime}
           subtitles={stream.subtitles}
           movieTitle={title}
           tmdbId={tmdbId}
