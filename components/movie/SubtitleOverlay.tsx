@@ -214,7 +214,20 @@ export function SubtitleOverlay({
             (name) => /\.(srt|vtt|ass)$/i.test(name) && !zip.files[name].dir,
           );
           if (!subFile) throw new Error("No subtitle file found in ZIP");
-          srtContent = await zip.files[subFile].async("string");
+          // Use nodebuffer type for proper encoding, fallback to binarystring
+          try {
+            const buf = await zip.files[subFile].async("nodebuffer");
+            srtContent = buf.toString("utf-8");
+          } catch {
+            // React Native may not support nodebuffer, use array and manual decode
+            const arr = await zip.files[subFile].async("uint8array");
+            // Manual UTF-8 decode for React Native
+            const chunks: string[] = [];
+            for (let i = 0; i < arr.length; i += 4096) {
+              chunks.push(String.fromCharCode(...arr.slice(i, i + 4096)));
+            }
+            srtContent = decodeURIComponent(escape(chunks.join("")));
+          }
         } else {
           srtContent = await res.text();
         }
