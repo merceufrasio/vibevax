@@ -98,12 +98,12 @@ jobs:
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          # Auto-detect scheme name from workspace
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -1 | xargs)
-          if [ -z "$SCHEME" ]; then
-            SCHEME="revax"
-          fi
-          echo "Building $SCHEME (unsigned) with SDK $IOS_SDK"
+          # List all schemes and pick the app scheme (not a Pod)
+          echo "Available schemes:"
+          xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | grep -A 100 "Schemes:" | grep -v "Schemes:"
+          # The app scheme matches the workspace name (without .xcworkspace)
+          SCHEME="${WORKSPACE%.xcworkspace}"
+          echo "Using scheme: $SCHEME"
           xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
