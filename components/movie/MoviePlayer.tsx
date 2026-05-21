@@ -19,6 +19,12 @@ interface Props {
   title?: string;
   posterUrl?: string;
   episodeId?: string;
+  /** TMDB ID for subtitle search */
+  tmdbId?: string;
+  /** Season number for TV subtitle search */
+  season?: number;
+  /** Episode number for TV subtitle search */
+  episode?: number;
 }
 
 type BlockRule = {
@@ -394,7 +400,7 @@ function formatTime(seconds: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
-export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId }: Props) {
+export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdbId, season, episode }: Props) {
   const [imageRatios, setImageRatios] = useState<Record<string, number>>({});
   const isEmbed = stream.isEmbed;
   const isImageGallery = Boolean(stream.images?.length);
@@ -1187,10 +1193,26 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId }: Pr
       )}
 
       {/* Subtitle overlay for native player */}
-      {!isEmbed && !isImageGallery && !isCasting && stream.subtitles && stream.subtitles.length > 0 && (
+      {!isEmbed && !isImageGallery && !isCasting && (
         <SubtitleOverlay
           currentTime={subtitleTime}
           subtitles={stream.subtitles}
+          movieTitle={title}
+          tmdbId={tmdbId}
+          season={season}
+          episode={episode}
+        />
+      )}
+
+      {/* Subtitle overlay for embed player (no time sync, just picker) */}
+      {isEmbed && !isImageGallery && !isCasting && (
+        <SubtitleOverlay
+          currentTime={0}
+          subtitles={stream.subtitles}
+          movieTitle={title}
+          tmdbId={tmdbId}
+          season={season}
+          episode={episode}
         />
       )}
 

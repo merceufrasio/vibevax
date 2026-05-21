@@ -174,6 +174,8 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
         }
 
         // Fetch PhimPal subtitles if stream has none
+        // Note: PhimPal subtitle file URLs need correct base URL which may change.
+        // SubtitleOverlay now provides online search via Subdl as fallback.
         if (nextStream && (!nextStream.subtitles || nextStream.subtitles.length === 0)) {
           const phimPalSubs = await repository.fetchPhimPalSubtitles(episodeId);
           if (phimPalSubs.length > 0) {
