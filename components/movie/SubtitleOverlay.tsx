@@ -134,7 +134,18 @@ async function searchSubdl(params: {
     };
     if (!data.status || !data.subtitles) return [];
 
-    return data.subtitles.map((s) => ({
+    // Sort: Vietnamese first, then English, then others
+    const sorted = [...data.subtitles].sort((a, b) => {
+      const langOrder = (lang: string) => {
+        const l = lang.toUpperCase();
+        if (l === "VI" || l === "VIETNAMESE") return 0;
+        if (l === "EN" || l === "ENGLISH") return 1;
+        return 2;
+      };
+      return langOrder(a.language || a.lang) - langOrder(b.language || b.lang);
+    });
+
+    return sorted.map((s) => ({
       lang: `${s.lang}${s.hi ? " (HI)" : ""} - ${s.release_name || s.name}`,
       url: `https://dl.subdl.com${s.url}`,
     }));
