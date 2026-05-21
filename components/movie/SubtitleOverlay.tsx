@@ -239,6 +239,20 @@ export function SubtitleOverlay({
     return null;
   }, [cues, currentTime]);
 
+  // Debug: log subtitle state periodically
+  useEffect(() => {
+    if (__DEV__ && selectedTrackIdx >= 0) {
+      console.log("[SubtitleOverlay:state]", {
+        selectedTrackIdx,
+        cueCount: cues.length,
+        currentTime: Math.round(currentTime),
+        currentCueText: currentCue?.text?.substring(0, 40),
+        isLoading,
+        trackUrl: allTracks[selectedTrackIdx]?.url?.substring(0, 60),
+      });
+    }
+  }, [Math.floor(currentTime / 5)]); // log every 5 seconds
+
   // Search online
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
