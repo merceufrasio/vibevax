@@ -47,7 +47,8 @@
       "expo-video",
       "expo-font",
       "expo-screen-orientation",
-      "./plugins/withVideoLandscape"
+      "./plugins/withVideoLandscape",
+      "./plugins/withFixBuildErrors"
     ],
     "experiments": {
       "typedRoutes": true

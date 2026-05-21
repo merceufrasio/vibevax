@@ -62,6 +62,61 @@ jobs:
           RCT_NEW_ARCH_ENABLED: "0"
         run: npx expo prebuild --platform ios --clean
 
+      - name: Fix iOS build errors (bridging header & duplicate methods)
+        run: |
+          cd ios
+          APP_NAME=$(ls -d *.xcworkspace | head -1 | sed 's/.xcworkspace//')
+          BRIDGING_HEADER="${APP_NAME}/${APP_NAME}-Bridging-Header.h"
+          
+          # Fix 1: Remove -Swift.h import from bridging header
+          if [ -f "$BRIDGING_HEADER" ]; then
+            if grep -q "\-Swift\.h" "$BRIDGING_HEADER"; then
+              echo "Removing -Swift.h import from bridging header"
+              sed -i '' '/-Swift\.h/d' "$BRIDGING_HEADER"
+            fi
+          fi
+          
+          # Fix 2: Remove duplicate didRegisterForRemoteNotificationsWithDeviceToken
+          APP_DELEGATE="${APP_NAME}/AppDelegate.mm"
+          if [ -f "$APP_DELEGATE" ]; then
+            COUNT=$(grep -c "didRegisterForRemoteNotificationsWithDeviceToken" "$APP_DELEGATE" 2>/dev/null || echo "0")
+            if [ "$COUNT" -gt "1" ]; then
+              echo "Found $COUNT notification methods, removing duplicates"
+              # Keep only the first occurrence by removing subsequent ones
+              python3 -c "
+import re
+with open('$APP_DELEGATE', 'r') as f:
+    content = f.read()
+pattern = r'(-\s*\(void\)\s*application:.*?didRegisterForRemoteNotificationsWithDeviceToken:.*?\{.*?\})'
+matches = list(re.finditer(pattern, content, re.DOTALL))
+if len(matches) > 1:
+    for m in reversed(matches[1:]):
+        content = content[:m.start()] + content[m.end():]
+    with open('$APP_DELEGATE', 'w') as f:
+        f.write(content)
+    print(f'Removed {len(matches)-1} duplicate method(s)')
+"
+            fi
+          fi
+          
+          # Fix 2b: Remove Swift files with conflicting notification selectors
+          if [ -f "$APP_DELEGATE" ] && grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$APP_DELEGATE"; then
+            for swift_file in ${APP_NAME}/*.swift; do
+              [ -f "$swift_file" ] || continue
+              if grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$swift_file"; then
+                echo "Removing conflicting notification method from $swift_file"
+                python3 -c "
+import re
+with open('$swift_file', 'r') as f:
+    content = f.read()
+content = re.sub(r'\s*(?:@objc\s+)?(?:override\s+)?func\s+application\s*\([^)]*didRegisterForRemoteNotificationsWithDeviceToken[^)]*\)\s*\{[^}]*\}', '', content, flags=re.DOTALL)
+with open('$swift_file', 'w') as f:
+    f.write(content)
+"
+              fi
+            done
+          fi
+
       - name: Cache CocoaPods specs
         uses: actions/cache@v4
         with:
