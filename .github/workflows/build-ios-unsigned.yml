@@ -104,12 +104,12 @@ jobs:
             SCHEME="revax"
           fi
           echo "Building $SCHEME (unsigned) with SDK $IOS_SDK"
-          xcodebuild archive \
+          xcodebuild build \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -archivePath build/App.xcarchive \
             -sdk "$IOS_SDK" \
+            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -119,11 +119,15 @@ jobs:
       - name: Create unsigned IPA
         run: |
           cd ios
-          # Find the .app bundle in the archive
-          APP_PATH=$(find build/App.xcarchive -name "*.app" -type d | head -1)
+          # Find the .app in DerivedData build products
+          APP_PATH=$(find build/DerivedData -name "*.app" -type d -path "*/Release-iphoneos/*" | grep -v "\.dSYM" | head -1)
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app not found in archive. Listing archive contents:"
-            find build/App.xcarchive -type d -maxdepth 4
+            # Fallback: search anywhere
+            APP_PATH=$(find build -name "*.app" -type d | grep -v "\.dSYM" | head -1)
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app not found. Listing build contents:"
+            find build -type d -maxdepth 6
             exit 1
           fi
           echo "Found app at: $APP_PATH"
