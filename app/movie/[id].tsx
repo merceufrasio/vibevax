@@ -194,7 +194,14 @@ export default function MovieDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         {stream ? (
-          <MoviePlayer onClose={clearStream} stream={stream} />
+          <MoviePlayer
+            onClose={clearStream}
+            stream={stream}
+            title={movie.originalTitle || movie.title}
+            posterUrl={movie.poster}
+            tmdbId={sourceDetail?.tmdbId}
+            season={sourceDetail?.tmdbSeason}
+          />
         ) : (
           <MovieHeader
             movie={movie}

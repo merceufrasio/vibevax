@@ -220,8 +220,9 @@ export function SubtitleOverlay({
   // Search online
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
+    // Prefer TMDB ID for precise results, fallback to movie title (English)
     const results = await searchSubdl({
-      filmName: movieTitle,
+      filmName: tmdbId ? undefined : movieTitle,
       tmdbId,
       season,
       episode,
