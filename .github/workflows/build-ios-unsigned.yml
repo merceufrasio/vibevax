@@ -119,8 +119,16 @@ jobs:
       - name: Create unsigned IPA
         run: |
           cd ios
+          # Find the .app bundle in the archive
+          APP_PATH=$(find build/App.xcarchive -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app not found in archive. Listing archive contents:"
+            find build/App.xcarchive -type d -maxdepth 4
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
           mkdir -p build/Payload
-          cp -r build/App.xcarchive/Products/Applications/*.app build/Payload/
+          cp -r "$APP_PATH" build/Payload/
           mkdir -p build/output
           cd build && zip -r output/VibeVax-unsigned.ipa Payload
 
