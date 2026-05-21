@@ -10,6 +10,7 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
+import JSZip from "jszip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -186,27 +187,37 @@ export function SubtitleOverlay({
     setIsLoading(true);
     fetchedUrlRef.current = track.url;
 
-    fetch(track.url)
-      .then((res) => {
+    (async () => {
+      try {
+        const res = await fetch(track.url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const contentType = res.headers.get("content-type") || "";
-        // If it's a zip file (subdl), we can't parse it directly in RN
+        let srtContent = "";
+
         if (contentType.includes("zip") || track.url.endsWith(".zip")) {
-          throw new Error("ZIP subtitle files are not supported. Please use direct SRT/VTT links.");
+          // Unzip and find .srt or .vtt file inside
+          const arrayBuffer = await res.arrayBuffer();
+          const zip = await JSZip.loadAsync(arrayBuffer);
+          const subFile = Object.keys(zip.files).find(
+            (name) => /\.(srt|vtt|ass)$/i.test(name) && !zip.files[name].dir,
+          );
+          if (!subFile) throw new Error("No subtitle file found in ZIP");
+          srtContent = await zip.files[subFile].async("string");
+        } else {
+          srtContent = await res.text();
         }
-        return res.text();
-      })
-      .then((text) => {
-        const parsed = parseCues(text);
-        if (parsed.length === 0) {
-          throw new Error("Could not parse subtitle file");
-        }
+
+        const parsed = parseCues(srtContent);
+        if (parsed.length === 0) throw new Error("Could not parse subtitle file");
         setCues(parsed);
-      })
-      .catch((err) => {
+      } catch (err) {
         setCues([]);
-        if (__DEV__) console.log("[SubtitleOverlay:fetchError]", err.message, track.url);
-      })
-      .finally(() => setIsLoading(false));
+        if (__DEV__) console.log("[SubtitleOverlay:fetchError]", (err as Error).message, track.url);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, [selectedTrackIdx, allTracks]);
 
   // Find current cue
@@ -382,7 +393,7 @@ export function SubtitleOverlay({
                       </Pressable>
                     ))}
                     <Text style={styles.noteText}>
-                      Lưu ý: File ZIP từ Subdl chưa hỗ trợ. Chọn file có đuôi .srt hoặc .vtt.
+                      Chọn subtitle để thêm vào player. File ZIP sẽ tự động giải nén.
                     </Text>
                   </ScrollView>
                 )}
