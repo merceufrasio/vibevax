@@ -10,7 +10,6 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -50,8 +49,7 @@ interface Props {
   episode?: number;
 }
 
-const SUBDL_API_KEY = Constants.expoConfig?.extra?.subdlApiKey
-  ?? (process.env.EXPO_PUBLIC_SUBDL_API_KEY || "");
+const SUBDL_API_KEY = process.env.EXPO_PUBLIC_SUBDL_API_KEY || "";
 
 /** Parse timestamp "HH:MM:SS,mmm" or "HH:MM:SS.mmm" to seconds */
 function parseTimestamp(raw: string): number {
