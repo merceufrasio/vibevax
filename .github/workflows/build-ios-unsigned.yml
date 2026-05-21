@@ -104,30 +104,33 @@ jobs:
             SCHEME="revax"
           fi
           echo "Building $SCHEME (unsigned) with SDK $IOS_SDK"
-          xcodebuild build \
+          xcodebuild archive \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
+            -archivePath build/App.xcarchive \
+            -destination "generic/platform=iOS" \
             -sdk "$IOS_SDK" \
-            -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            SKIP_INSTALL=NO \
             "GCC_PREPROCESSOR_DEFINITIONS=\$(inherited) FOLLY_HAS_COROUTINES=0 FOLLY_CFG_NO_COROUTINES=1" \
             IPHONEOS_DEPLOYMENT_TARGET=15.1
 
       - name: Create unsigned IPA
         run: |
           cd ios
-          # Find the .app in DerivedData build products
-          APP_PATH=$(find build/DerivedData -name "*.app" -type d -path "*/Release-iphoneos/*" | grep -v "\.dSYM" | head -1)
+          # With SKIP_INSTALL=NO, .app should be in Products/Applications/
+          APP_PATH=$(find build/App.xcarchive -name "*.app" -type d | grep -v "\.dSYM" | head -1)
           if [ -z "$APP_PATH" ]; then
-            # Fallback: search anywhere
+            # Fallback: search entire build dir
             APP_PATH=$(find build -name "*.app" -type d | grep -v "\.dSYM" | head -1)
           fi
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app not found. Listing build contents:"
-            find build -type d -maxdepth 6
+            echo "Error: .app not found. Full archive contents:"
+            find build/App.xcarchive -type f -o -type d | head -50
             exit 1
           fi
           echo "Found app at: $APP_PATH"
