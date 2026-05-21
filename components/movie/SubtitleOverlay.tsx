@@ -231,9 +231,21 @@ export function SubtitleOverlay({
   // Search online
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
-    // Prefer TMDB ID for precise results, fallback to movie title (English)
+
+    // Clean title for search: remove year/season suffixes, prefer English name
+    let searchTitle = movieTitle || "";
+    // Remove Vietnamese parenthetical info like "(phần 1)" or "(2026)"
+    searchTitle = searchTitle.replace(/\s*\((?:phần|phan|mùa|season)\s*\d+\)\s*/gi, "");
+    searchTitle = searchTitle.replace(/\s*\(\d{4}\)\s*/g, "");
+    searchTitle = searchTitle.trim();
+
+    if (__DEV__) {
+      console.log("[SubtitleOverlay:search]", { movieTitle, searchTitle, tmdbId, season, episode });
+    }
+
+    // Prefer TMDB ID for precise results, fallback to movie title
     const results = await searchSubdl({
-      filmName: tmdbId ? undefined : movieTitle,
+      filmName: tmdbId ? undefined : searchTitle,
       tmdbId,
       season,
       episode,
