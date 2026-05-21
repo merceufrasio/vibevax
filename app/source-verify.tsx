@@ -86,10 +86,60 @@ function buildVerificationScript(prefetchUrls: string[]) {
           var submitTime = Date.now();
 
           var navCheck = setInterval(function () {
-            // Page navigated away from xac-minh.php — success, let standard flow continue
+            // Page navigated away from xac-minh.php — verification succeeded
             if (window.location.href.indexOf("xac-minh.php") === -1) {
               clearInterval(navCheck);
-              window.__REVAX_VERIFY_RUNNING__ = false;
+
+              // Wait for new page to fully load, then fetch prefetch URLs and post verified
+              var waitForLoad = setInterval(function () {
+                if (document.readyState === "complete" || document.readyState === "interactive") {
+                  clearInterval(waitForLoad);
+
+                  var verifiedHtml = document.documentElement ? document.documentElement.outerHTML : "";
+                  var urls = ${JSON.stringify(prefetchUrls)};
+
+                  Promise.all(
+                    urls.map(function (url) {
+                      return fetch(url, { credentials: "include" })
+                        .then(function (response) { return response.text(); })
+                        .then(function (pageHtml) { return [url, pageHtml]; })
+                        .catch(function () { return [url, ""]; });
+                    })
+                  ).then(function (entries) {
+                    var pages = {};
+                    entries.forEach(function (entry) {
+                      if (entry[0] && entry[1]) {
+                        pages[entry[0]] = entry[1];
+                      }
+                    });
+
+                    if (!pages[window.location.href] && verifiedHtml) {
+                      pages[window.location.href] = verifiedHtml;
+                    }
+
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: "challenge-state",
+                      state: "verified",
+                      html: verifiedHtml,
+                      pages: pages,
+                      cookies: document.cookie,
+                      userAgent: navigator.userAgent
+                    }));
+                    window.__REVAX_VERIFY_RUNNING__ = false;
+                  }).catch(function () {
+                    // Even if prefetch fails, still report verified with current page HTML
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: "challenge-state",
+                      state: "verified",
+                      html: verifiedHtml,
+                      pages: {},
+                      cookies: document.cookie,
+                      userAgent: navigator.userAgent
+                    }));
+                    window.__REVAX_VERIFY_RUNNING__ = false;
+                  });
+                }
+              }, 200);
               return;
             }
 

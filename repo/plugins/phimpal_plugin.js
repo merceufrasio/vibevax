@@ -1037,8 +1037,8 @@ function parseDetailResponse(html) {
             }
 
             if (episodeId) {
-                // Construct GraphQL TitleWatch query
-                var gqlQuery = "query TitleWatch($id: String!, $server: String) { title(id: $id, server: $server) { id srcUrl srcServer type number nextEpisodeId parent { id number parent { id nameEn nameVi __typename } __typename } __typename } }";
+                // Construct GraphQL TitleWatch query (includes subtitles field)
+                var gqlQuery = "query TitleWatch($id: String!, $server: String) { title(id: $id, server: $server) { id srcUrl srcServer type number nextEpisodeId subtitles { lang url } parent { id number parent { id nameEn nameVi __typename } __typename } __typename } }";
                 var gqlBody = JSON.stringify({
                     operationName: "TitleWatch",
                     variables: { id: episodeId, server: "1" },
@@ -1160,6 +1160,20 @@ function parseEmbedResponse(json) {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
         };
+
+        // Extract subtitles from GraphQL response
+        if (title.subtitles && Array.isArray(title.subtitles) && title.subtitles.length > 0) {
+            result.subtitles = [];
+            for (var i = 0; i < title.subtitles.length; i++) {
+                var sub = title.subtitles[i];
+                if (sub && sub.url) {
+                    result.subtitles.push({
+                        lang: sub.lang || sub.label || "Unknown",
+                        url: sub.url
+                    });
+                }
+            }
+        }
 
         return JSON.stringify(result);
     } catch (e) {

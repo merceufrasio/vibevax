@@ -8,6 +8,7 @@ import { WebView } from "react-native-webview";
 import { IconButton } from "@/components/ui/IconButton";
 import { Colors } from "@/constants/Colors";
 import { CastButton, useCastSession } from "@/modules/cast";
+import { SubtitleOverlay } from "@/components/movie/SubtitleOverlay";
 import type { StreamResult } from "@/sources/types";
 import { appendAdBlockLog } from "@/utils/adBlockLogger";
 
@@ -516,6 +517,20 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId }: Pr
 
     return () => clearInterval(interval);
   }, [player, isEmbed, isImageGallery]);
+
+  // Track current time for subtitle sync (more frequent updates)
+  const [subtitleTime, setSubtitleTime] = useState(0);
+  useEffect(() => {
+    if (isEmbed || isImageGallery || !player || !stream.subtitles?.length) return;
+
+    const interval = setInterval(() => {
+      if (player.currentTime > 0) {
+        setSubtitleTime(player.currentTime);
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [player, isEmbed, isImageGallery, stream.subtitles]);
 
   // Auto-enter fullscreen + landscape when native player starts playing (once only)
   useEffect(() => {
@@ -1168,6 +1183,14 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId }: Pr
           }}
           player={player}
           style={styles.video}
+        />
+      )}
+
+      {/* Subtitle overlay for native player */}
+      {!isEmbed && !isImageGallery && !isCasting && stream.subtitles && stream.subtitles.length > 0 && (
+        <SubtitleOverlay
+          currentTime={subtitleTime}
+          subtitles={stream.subtitles}
         />
       )}
 
