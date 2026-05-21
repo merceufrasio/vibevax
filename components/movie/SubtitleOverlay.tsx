@@ -221,6 +221,16 @@ export function SubtitleOverlay({
 
         const parsed = parseCues(srtContent);
         if (parsed.length === 0) throw new Error("Could not parse subtitle file");
+
+        if (__DEV__) {
+          console.log("[SubtitleOverlay:parsed]", {
+            cueCount: parsed.length,
+            firstCue: parsed[0],
+            lastCue: parsed[parsed.length - 1],
+            sampleRaw: srtContent.substring(0, 300),
+          });
+        }
+
         setCues(parsed);
       } catch (err) {
         setCues([]);
