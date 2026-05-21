@@ -22,8 +22,10 @@ jobs:
           xcodebuild -version
           IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
           echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
+          # Ensure iOS platform is available
           xcodebuild -downloadPlatform iOS || true
-          xcrun simctl list 2>/dev/null || true
+          # Wait and verify SDK is usable
+          xcrun --sdk iphoneos --show-sdk-path || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
