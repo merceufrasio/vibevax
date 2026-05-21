@@ -197,7 +197,7 @@ export default function MovieDetailScreen() {
           <MoviePlayer
             onClose={clearStream}
             stream={stream}
-            title={sourceDetail?.originName || movie.originalTitle || movie.title}
+            title={sourceDetail?.title || movie.title}
             posterUrl={movie.poster}
             tmdbId={sourceDetail?.tmdbId}
             season={sourceDetail?.tmdbSeason}
