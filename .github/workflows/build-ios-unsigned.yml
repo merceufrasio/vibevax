@@ -161,7 +161,6 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/App.xcarchive \
-            -destination "generic/platform=iOS" \
             -sdk "$IOS_SDK" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
