@@ -20,12 +20,11 @@ jobs:
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
-          IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
-          echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
-          # Ensure iOS platform is available
-          xcodebuild -downloadPlatform iOS || true
-          # Wait and verify SDK is usable
-          xcrun --sdk iphoneos --show-sdk-path || true
+          # List available SDKs for debugging
+          xcodebuild -showsdks | grep iphoneos
+          # Verify SDK path is accessible
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -163,7 +162,7 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/App.xcarchive \
-            -sdk "$IOS_SDK" \
+            -sdk iphoneos \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
