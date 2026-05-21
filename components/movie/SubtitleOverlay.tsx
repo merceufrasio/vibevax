@@ -69,34 +69,82 @@ function parseTimestamp(raw: string): number {
 function parseCues(content: string): SubtitleCue[] {
   const cues: SubtitleCue[] = [];
   const text = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const blocks = text.split(/\n\n+/);
 
-  for (const block of blocks) {
-    const lines = block.trim().split("\n");
-    let timingIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes("-->")) {
-        timingIdx = i;
-        break;
+  // Check if content has proper newlines
+  const hasNewlines = text.includes("\n");
+
+  if (hasNewlines) {
+    // Standard parsing: split by double newline
+    const blocks = text.split(/\n\n+/);
+    for (const block of blocks) {
+      const lines = block.trim().split("\n");
+      let timingIdx = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes("-->")) {
+          timingIdx = i;
+          break;
+        }
+      }
+      if (timingIdx === -1) continue;
+
+      const [startRaw, endRaw] = lines[timingIdx].split("-->");
+      if (!startRaw || !endRaw) continue;
+
+      const start = parseTimestamp(startRaw);
+      const end = parseTimestamp(endRaw.split(/\s/)[0]);
+      const cueText = lines
+        .slice(timingIdx + 1)
+        .join("\n")
+        .replace(/<[^>]*>/g, "")
+        .trim();
+
+      if (cueText && end > start) {
+        cues.push({ start, end, text: cueText });
       }
     }
-    if (timingIdx === -1) continue;
+  }
 
-    const [startRaw, endRaw] = lines[timingIdx].split("-->");
-    if (!startRaw || !endRaw) continue;
+  // Fallback: regex-based parsing for corrupted/no-newline SRT
+  if (cues.length === 0) {
+    // Match pattern: sequence number + timestamp --> timestamp + text until next sequence
+    const regex = /(\d+)(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})/g;
+    let match;
+    const entries: Array<{ start: number; end: number; pos: number }> = [];
 
-    const start = parseTimestamp(startRaw);
-    const end = parseTimestamp(endRaw.split(/\s/)[0]);
-    const cueText = lines
-      .slice(timingIdx + 1)
-      .join("\n")
-      .replace(/<[^>]*>/g, "")
-      .trim();
+    while ((match = regex.exec(text)) !== null) {
+      const start = parseTimestamp(match[2]);
+      const end = parseTimestamp(match[3]);
+      entries.push({ start, end, pos: match.index + match[0].length });
+    }
 
-    if (cueText) {
-      cues.push({ start, end, text: cueText });
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      // Text is between this entry's end position and next entry's start
+      const nextPos = i + 1 < entries.length
+        ? text.lastIndexOf(String(i + 2), entries[i + 1].pos)
+        : text.length;
+
+      // Extract text between current timestamp end and next sequence number
+      let cueText: string;
+      if (i + 1 < entries.length) {
+        // Find where next sequence number starts (digit(s) followed by timestamp)
+        const remaining = text.substring(entry.pos);
+        const nextMatch = remaining.match(/\d+\d{2}:\d{2}:\d{2}[,.]\d{3}/);
+        cueText = nextMatch
+          ? remaining.substring(0, nextMatch.index)
+          : remaining;
+      } else {
+        cueText = text.substring(entry.pos);
+      }
+
+      cueText = cueText.replace(/<[^>]*>/g, "").trim();
+
+      if (cueText && entry.end > entry.start) {
+        cues.push({ start: entry.start, end: entry.end, text: cueText });
+      }
     }
   }
+
   return cues;
 }
 
