@@ -14,15 +14,19 @@ jobs:
 
       - name: Select Xcode
         run: |
+          # Use Xcode 16.1 if available, otherwise default
           if [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
           else
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
-          # List available SDKs for debugging
+          # Download iOS platform (required for storyboard compilation on macos-15 runners)
+          echo "Downloading iOS platform..."
+          xcodebuild -downloadPlatform iOS
+          echo "iOS platform download complete"
+          # List available SDKs
           xcodebuild -showsdks | grep iphoneos
-          # Verify SDK path is accessible
           xcrun --sdk iphoneos --show-sdk-path
           xcrun --sdk iphoneos --show-sdk-version
 
