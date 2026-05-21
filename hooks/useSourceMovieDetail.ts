@@ -164,6 +164,29 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
 
       try {
         const nextStream = await repository.resolveStream(episodeId);
+        if (__DEV__) {
+          console.log("[useSourceMovieDetail:resolveStream:result]", {
+            url: nextStream?.url?.substring(0, 80),
+            isEmbed: nextStream?.isEmbed,
+            subtitles: nextStream?.subtitles,
+            subtitleCount: nextStream?.subtitles?.length ?? 0,
+          });
+        }
+
+        // Fetch PhimPal subtitles if stream has none
+        if (nextStream && (!nextStream.subtitles || nextStream.subtitles.length === 0)) {
+          const phimPalSubs = await repository.fetchPhimPalSubtitles(episodeId);
+          if (phimPalSubs.length > 0) {
+            nextStream.subtitles = phimPalSubs;
+            if (__DEV__) {
+              console.log("[useSourceMovieDetail:phimPalSubs]", {
+                count: phimPalSubs.length,
+                subs: phimPalSubs,
+              });
+            }
+          }
+        }
+
         setStream(nextStream);
         setPendingEpisodeId(null);
         return nextStream;
