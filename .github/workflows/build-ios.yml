@@ -22,9 +22,7 @@ jobs:
           xcodebuild -version
           IOS_SDK=$(xcodebuild -showsdks | grep "iphoneos" | head -1 | awk '{print $NF}')
           echo "IOS_SDK=$IOS_SDK" >> $GITHUB_ENV
-          # Download iOS platform (needed for storyboard compilation)
           xcodebuild -downloadPlatform iOS || true
-          # If download fails, try to install via xcode-select
           xcrun simctl list 2>/dev/null || true
 
       - name: Setup Node.js
@@ -66,53 +64,49 @@ jobs:
         run: |
           cd ios
           APP_NAME=$(ls -d *.xcworkspace | head -1 | sed 's/.xcworkspace//')
+          echo "App name: $APP_NAME"
           BRIDGING_HEADER="${APP_NAME}/${APP_NAME}-Bridging-Header.h"
-          
-          # Fix 1: Remove -Swift.h import from bridging header
           if [ -f "$BRIDGING_HEADER" ]; then
             if grep -q "\-Swift\.h" "$BRIDGING_HEADER"; then
               echo "Removing -Swift.h import from bridging header"
               sed -i '' '/-Swift\.h/d' "$BRIDGING_HEADER"
             fi
           fi
-          
-          # Fix 2: Remove duplicate didRegisterForRemoteNotificationsWithDeviceToken
           APP_DELEGATE="${APP_NAME}/AppDelegate.mm"
           if [ -f "$APP_DELEGATE" ]; then
             COUNT=$(grep -c "didRegisterForRemoteNotificationsWithDeviceToken" "$APP_DELEGATE" 2>/dev/null || echo "0")
             if [ "$COUNT" -gt "1" ]; then
-              echo "Found $COUNT notification methods, removing duplicates"
-              # Keep only the first occurrence by removing subsequent ones
-              python3 -c "
-import re
-with open('$APP_DELEGATE', 'r') as f:
-    content = f.read()
-pattern = r'(-\s*\(void\)\s*application:.*?didRegisterForRemoteNotificationsWithDeviceToken:.*?\{.*?\})'
-matches = list(re.finditer(pattern, content, re.DOTALL))
-if len(matches) > 1:
-    for m in reversed(matches[1:]):
-        content = content[:m.start()] + content[m.end():]
-    with open('$APP_DELEGATE', 'w') as f:
-        f.write(content)
-    print(f'Removed {len(matches)-1} duplicate method(s)')
-"
+              echo "Found $COUNT notification methods, removing duplicates via python"
+              python3 - "$APP_DELEGATE" <<'PYEOF'
+          import re, sys
+          path = sys.argv[1]
+          with open(path, 'r') as f:
+              content = f.read()
+          pattern = r'(-\s*\(void\)\s*application:.*?didRegisterForRemoteNotificationsWithDeviceToken:.*?\{.*?\})'
+          matches = list(re.finditer(pattern, content, re.DOTALL))
+          if len(matches) > 1:
+              for m in reversed(matches[1:]):
+                  content = content[:m.start()] + content[m.end():]
+              with open(path, 'w') as f:
+                  f.write(content)
+              print(f'Removed {len(matches)-1} duplicate method(s)')
+          PYEOF
             fi
           fi
-          
-          # Fix 2b: Remove Swift files with conflicting notification selectors
           if [ -f "$APP_DELEGATE" ] && grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$APP_DELEGATE"; then
             for swift_file in ${APP_NAME}/*.swift; do
               [ -f "$swift_file" ] || continue
               if grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$swift_file"; then
                 echo "Removing conflicting notification method from $swift_file"
-                python3 -c "
-import re
-with open('$swift_file', 'r') as f:
-    content = f.read()
-content = re.sub(r'\s*(?:@objc\s+)?(?:override\s+)?func\s+application\s*\([^)]*didRegisterForRemoteNotificationsWithDeviceToken[^)]*\)\s*\{[^}]*\}', '', content, flags=re.DOTALL)
-with open('$swift_file', 'w') as f:
-    f.write(content)
-"
+                python3 - "$swift_file" <<'PYEOF'
+          import re, sys
+          path = sys.argv[1]
+          with open(path, 'r') as f:
+              content = f.read()
+          content = re.sub(r'\s*(?:@objc\s+)?(?:override\s+)?func\s+application\s*\([^)]*didRegisterForRemoteNotificationsWithDeviceToken[^)]*\)\s*\{[^}]*\}', '', content, flags=re.DOTALL)
+          with open(path, 'w') as f:
+              f.write(content)
+          PYEOF
               fi
             done
           fi
@@ -138,7 +132,6 @@ with open('$swift_file', 'w') as f:
           python3 << 'EOF'
           import os
 
-          # Stub content with proper folly::coro namespace
           stub = """#pragma once
           #define FOLLY_HAS_COROUTINES 0
           #define FOLLY_CFG_NO_COROUTINES 1
@@ -153,7 +146,6 @@ with open('$swift_file', 'w') as f:
           }} // namespace folly::coro
           """
 
-          # Find all places where Coroutine.h should exist
           for root, dirs, files in os.walk("Pods"):
               if "folly" in root and root.endswith("folly"):
                   coro_dir = os.path.join(root, "coro")
@@ -164,7 +156,6 @@ with open('$swift_file', 'w') as f:
                           f.write(stub)
                       print(f"Created: {path}")
 
-          # Also find Header directories
           for root, dirs, files in os.walk("Pods/Headers"):
               if root.endswith("RCT-Folly/folly"):
                   coro_dir = os.path.join(root, "coro")
@@ -179,7 +170,6 @@ with open('$swift_file', 'w') as f:
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -1)
-          # The app scheme matches the workspace name (without .xcworkspace extension)
           SCHEME="${WORKSPACE%.xcworkspace}"
           echo "Building $SCHEME with SDK $IOS_SDK"
           cat > ExportOptions.plist << EOF
