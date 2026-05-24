@@ -524,7 +524,7 @@ export function SubtitleOverlay({
 const styles = StyleSheet.create({
   subtitleContainer: {
     position: "absolute",
-    bottom: 50,
+    bottom: 80,
     left: 16,
     right: 16,
     alignItems: "center",
