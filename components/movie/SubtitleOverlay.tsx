@@ -65,6 +65,18 @@ function parseCues(content: string): SubtitleCue[] {
 
   // Standard SRT/VTT parsing
   const blocks = text.split(/\n\n+/);
+
+  if (__DEV__ && blocks.length < 5) {
+    console.log("[parseCues:debug]", {
+      blockCount: blocks.length,
+      textLen: text.length,
+      first100chars: JSON.stringify(text.substring(0, 100)),
+      hasLF: text.includes("\n"),
+      hasCRLF: text.includes("\r\n"),
+      hasCR: text.includes("\r"),
+    });
+  }
+
   for (const block of blocks) {
     const lines = block.trim().split("\n");
     let timingIdx = -1;
@@ -76,11 +88,13 @@ function parseCues(content: string): SubtitleCue[] {
     }
     if (timingIdx === -1) continue;
 
-    const [startRaw, endRaw] = lines[timingIdx].split("-->");
+    const timingParts = lines[timingIdx].split("-->");
+    const startRaw = timingParts[0];
+    const endRaw = timingParts[1];
     if (!startRaw || !endRaw) continue;
 
-    const start = parseTimestamp(startRaw);
-    const end = parseTimestamp(endRaw.split(/\s/)[0]);
+    const start = parseTimestamp(startRaw.trim());
+    const end = parseTimestamp(endRaw.trim().split(/\s/)[0]);
     const cueText = lines
       .slice(timingIdx + 1)
       .join("\n")
@@ -89,6 +103,37 @@ function parseCues(content: string): SubtitleCue[] {
 
     if (cueText && end > start) {
       cues.push({ start, end, text: cueText });
+    }
+  }
+
+  // If standard parsing failed, try single-newline separated format
+  if (cues.length === 0 && text.includes("-->")) {
+    if (__DEV__) {
+      console.log("[parseCues:fallback]", { blockCount: blocks.length, trying: "line-by-line" });
+    }
+    const allLines = text.split("\n");
+    let i = 0;
+    while (i < allLines.length) {
+      const line = allLines[i];
+      if (line.includes("-->")) {
+        const parts = line.split("-->");
+        const start = parseTimestamp(parts[0].trim());
+        const end = parseTimestamp(parts[1].trim().split(/\s/)[0]);
+        // Collect text lines until next timing or sequence number
+        const textLines: string[] = [];
+        i++;
+        while (i < allLines.length && !allLines[i].includes("-->") && !/^\d+$/.test(allLines[i].trim())) {
+          const tl = allLines[i].replace(/<[^>]*>/g, "").trim();
+          if (tl) textLines.push(tl);
+          i++;
+        }
+        const cueText = textLines.join("\n");
+        if (cueText && end > start) {
+          cues.push({ start, end, text: cueText });
+        }
+      } else {
+        i++;
+      }
     }
   }
 
