@@ -538,18 +538,17 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
     return () => clearInterval(interval);
   }, [player, isEmbed, isImageGallery]);
 
-  // Auto-enter fullscreen + landscape when native player starts playing (once only)
+  // Auto-enter landscape when native player starts playing (custom fullscreen - no native overlay)
   useEffect(() => {
     if (isEmbed || isImageGallery || !player) return;
 
-    let hasEnteredFullscreen = false;
+    let hasEntered = false;
 
     const subscription = player.addListener("playingChange", (event) => {
-      if (event.isPlaying && videoRef.current && !hasEnteredFullscreen) {
-        hasEnteredFullscreen = true;
-        // Force landscape orientation for fullscreen video
+      if (event.isPlaying && !hasEntered) {
+        hasEntered = true;
+        // Force landscape orientation — video container will fill screen via styles
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-        videoRef.current.enterFullscreen();
       }
     });
 
@@ -1180,13 +1179,7 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
         <VideoView
           ref={videoRef}
           allowsPictureInPicture
-          fullscreenOptions={{
-            enable: true,
-          }}
-          onFullscreenExit={() => {
-            // Restore portrait when user exits native fullscreen
-            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-          }}
+          nativeControls
           player={player}
           style={styles.video}
         />
