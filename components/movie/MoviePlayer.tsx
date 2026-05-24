@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Image, Pressable, StatusBar, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Image, Pressable, StatusBar, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { IconButton } from "@/components/ui/IconButton";
@@ -592,7 +592,15 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
       styles.container,
       isImageGallery ? styles.galleryContainer : null,
       // Fullscreen when landscape + native video
-      isLandscape && !isEmbed && !isImageGallery ? styles.fullscreenContainer : null,
+      isLandscape && !isEmbed && !isImageGallery ? {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        width: windowWidth,
+        height: windowHeight,
+        aspectRatio: undefined,
+        zIndex: 999,
+      } : null,
     ]}>
       {isCasting ? (
         /* Cast controls overlay — replaces local video when casting */
@@ -1186,6 +1194,7 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
         <VideoView
           ref={videoRef}
           allowsPictureInPicture
+          contentFit="contain"
           nativeControls
           player={player}
           style={styles.video}
@@ -1239,17 +1248,6 @@ const styles = StyleSheet.create({
     aspectRatio: 16 / 9,
     backgroundColor: "#000",
     position: "relative",
-  },
-  fullscreenContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: "100%",
-    height: "100%",
-    aspectRatio: undefined,
-    zIndex: 999,
   },
   galleryContainer: {
     aspectRatio: undefined,
