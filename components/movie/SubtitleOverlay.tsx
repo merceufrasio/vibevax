@@ -283,6 +283,14 @@ export function SubtitleOverlay({
         return res.text();
       })
       .then((text) => {
+        if (__DEV__) {
+          console.log("[SubtitleOverlay:rawResponse]", {
+            len: text.length,
+            first200: text.substring(0, 200),
+            hasNewlines: text.includes("\n"),
+            hasArrow: text.includes("-->"),
+          });
+        }
         const parsed = parseCues(text);
         if (__DEV__) {
           console.log("[SubtitleOverlay:parsed]", {
