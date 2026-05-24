@@ -1,16 +1,13 @@
 /**
  * SubtitleOverlay — Renders subtitles over the video player.
  *
- * Features:
- * - Parses both WebVTT (.vtt) and SubRip (.srt) formats
- * - Syncs subtitle display with current playback time
- * - Track selector with "Off" option
- * - Search subtitles online via Subdl API (by TMDB ID or movie name)
- * - Manual URL input for custom subtitle files
+ * Subtitle sources:
+ * 1. PhimPal: auto-fetch via GraphQL Subtitles query + direct SRT download
+ * 2. Subdl: online search by movie name / TMDB ID
+ * 3. Manual URL input
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import JSZip from "jszip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -37,22 +34,19 @@ interface SubtitleCue {
 }
 
 interface Props {
-  /** Pre-loaded subtitle tracks (from source plugin) */
   subtitles?: SubtitleTrack[];
-  /** Current playback time in seconds */
   currentTime: number;
-  /** Movie title for online search */
   movieTitle?: string;
-  /** TMDB ID for precise search */
   tmdbId?: string;
-  /** Season/episode for TV shows */
   season?: number;
   episode?: number;
+  /** PhimPal episode ID for auto-fetching subtitles (e.g. "watch/68919") */
+  sourceId?: string;
+  episodeId?: string;
 }
 
 const SUBDL_API_KEY = process.env.EXPO_PUBLIC_SUBDL_API_KEY || "";
 
-/** Parse timestamp "HH:MM:SS,mmm" or "HH:MM:SS.mmm" to seconds */
 function parseTimestamp(raw: string): number {
   const cleaned = raw.trim().replace(",", ".");
   const parts = cleaned.split(":");
@@ -65,87 +59,103 @@ function parseTimestamp(raw: string): number {
   return 0;
 }
 
-/** Parse VTT or SRT content into cues */
 function parseCues(content: string): SubtitleCue[] {
   const cues: SubtitleCue[] = [];
   const text = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Check if content has proper newlines
-  const hasNewlines = text.includes("\n");
-
-  if (hasNewlines) {
-    // Standard parsing: split by double newline
-    const blocks = text.split(/\n\n+/);
-    for (const block of blocks) {
-      const lines = block.trim().split("\n");
-      let timingIdx = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes("-->")) {
-          timingIdx = i;
-          break;
-        }
-      }
-      if (timingIdx === -1) continue;
-
-      const [startRaw, endRaw] = lines[timingIdx].split("-->");
-      if (!startRaw || !endRaw) continue;
-
-      const start = parseTimestamp(startRaw);
-      const end = parseTimestamp(endRaw.split(/\s/)[0]);
-      const cueText = lines
-        .slice(timingIdx + 1)
-        .join("\n")
-        .replace(/<[^>]*>/g, "")
-        .trim();
-
-      if (cueText && end > start) {
-        cues.push({ start, end, text: cueText });
+  // Standard SRT/VTT parsing
+  const blocks = text.split(/\n\n+/);
+  for (const block of blocks) {
+    const lines = block.trim().split("\n");
+    let timingIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes("-->")) {
+        timingIdx = i;
+        break;
       }
     }
-  }
+    if (timingIdx === -1) continue;
 
-  // Fallback: regex-based parsing for corrupted/no-newline SRT
-  if (cues.length === 0) {
-    // Match pattern: sequence number + timestamp --> timestamp + text until next sequence
-    const regex = /(\d+)(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})/g;
-    let match;
-    const entries: Array<{ start: number; end: number; pos: number }> = [];
+    const [startRaw, endRaw] = lines[timingIdx].split("-->");
+    if (!startRaw || !endRaw) continue;
 
-    while ((match = regex.exec(text)) !== null) {
-      const start = parseTimestamp(match[2]);
-      const end = parseTimestamp(match[3]);
-      entries.push({ start, end, pos: match.index + match[0].length });
-    }
+    const start = parseTimestamp(startRaw);
+    const end = parseTimestamp(endRaw.split(/\s/)[0]);
+    const cueText = lines
+      .slice(timingIdx + 1)
+      .join("\n")
+      .replace(/<[^>]*>/g, "")
+      .trim();
 
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      // Text is between this entry's end position and next entry's start
-      const nextPos = i + 1 < entries.length
-        ? text.lastIndexOf(String(i + 2), entries[i + 1].pos)
-        : text.length;
-
-      // Extract text between current timestamp end and next sequence number
-      let cueText: string;
-      if (i + 1 < entries.length) {
-        // Find where next sequence number starts (digit(s) followed by timestamp)
-        const remaining = text.substring(entry.pos);
-        const nextMatch = remaining.match(/\d+\d{2}:\d{2}:\d{2}[,.]\d{3}/);
-        cueText = nextMatch
-          ? remaining.substring(0, nextMatch.index)
-          : remaining;
-      } else {
-        cueText = text.substring(entry.pos);
-      }
-
-      cueText = cueText.replace(/<[^>]*>/g, "").trim();
-
-      if (cueText && entry.end > entry.start) {
-        cues.push({ start: entry.start, end: entry.end, text: cueText });
-      }
+    if (cueText && end > start) {
+      cues.push({ start, end, text: cueText });
     }
   }
 
   return cues;
+}
+
+/** Fetch PhimPal subtitles via GraphQL + build direct SRT URLs */
+async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
+  const idMatch = episodeId.match(/(\d+)/);
+  if (!idMatch) return [];
+  const titleId = idMatch[1];
+
+  try {
+    const gqlBody = JSON.stringify({
+      operationName: "Subtitles",
+      variables: { titleId },
+      query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language files isDefault likes dislikes } }`,
+    });
+
+    const res = await fetch("https://legacy.phimpal.com/b/g", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Origin": "https://legacy.phimpal.com",
+        "Referer": `https://legacy.phimpal.com/watch/${titleId}`,
+      },
+      body: gqlBody,
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      data?: {
+        subtitles?: Array<{
+          id: string;
+          subsceneId: string;
+          language: string;
+          files: string[];
+          isDefault: boolean;
+          likes: number;
+          dislikes: number;
+        }>;
+      };
+    };
+
+    const subs = data?.data?.subtitles;
+    if (!Array.isArray(subs) || subs.length === 0) return [];
+
+    // Sort: Vietnamese first, default first, then by likes
+    const sorted = [...subs].sort((a, b) => {
+      if (a.language === "vi" && b.language !== "vi") return -1;
+      if (a.language !== "vi" && b.language === "vi") return 1;
+      if (a.isDefault && !b.isDefault) return -1;
+      if (!a.isDefault && b.isDefault) return 1;
+      return (b.likes - b.dislikes) - (a.likes - a.dislikes);
+    });
+
+    // Build direct SRT URLs using pattern:
+    // /b/subtitle/{subsceneId}/{filename}/srt.css
+    return sorted
+      .filter((s) => s.files?.length > 0 && s.subsceneId)
+      .map((s) => ({
+        lang: s.language === "vi" ? "Tiếng Việt" : s.language === "en" ? "English" : s.language,
+        url: `https://legacy.phimpal.com/b/subtitle/${s.subsceneId}/${encodeURI(s.files[0])}/srt.css`,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 /** Search subtitles from Subdl API */
@@ -154,7 +164,6 @@ async function searchSubdl(params: {
   tmdbId?: string;
   season?: number;
   episode?: number;
-  languages?: string;
 }): Promise<SubtitleTrack[]> {
   if (!SUBDL_API_KEY) return [];
 
@@ -164,7 +173,7 @@ async function searchSubdl(params: {
   else if (params.filmName) query.set("film_name", params.filmName);
   if (params.season) query.set("season_number", String(params.season));
   if (params.episode) query.set("episode_number", String(params.episode));
-  query.set("languages", params.languages || "VI,EN");
+  query.set("languages", "VI,EN");
   query.set("subs_per_page", "15");
 
   try {
@@ -176,13 +185,13 @@ async function searchSubdl(params: {
         release_name: string;
         name: string;
         lang: string;
+        language: string;
         url: string;
         hi: boolean;
       }>;
     };
     if (!data.status || !data.subtitles) return [];
 
-    // Sort: Vietnamese first, then English, then others
     const sorted = [...data.subtitles].sort((a, b) => {
       const langOrder = (lang: string) => {
         const l = lang.toUpperCase();
@@ -194,7 +203,7 @@ async function searchSubdl(params: {
     });
 
     return sorted.map((s) => ({
-      lang: `${s.lang}${s.hi ? " (HI)" : ""} - ${s.release_name || s.name}`,
+      lang: `[Subdl] ${s.lang}${s.hi ? " (HI)" : ""} - ${s.release_name || s.name}`,
       url: `https://dl.subdl.com${s.url}`,
     }));
   } catch {
@@ -209,9 +218,11 @@ export function SubtitleOverlay({
   tmdbId,
   season,
   episode,
+  sourceId,
+  episodeId,
 }: Props) {
   const [allTracks, setAllTracks] = useState<SubtitleTrack[]>(subtitles);
-  const [selectedTrackIdx, setSelectedTrackIdx] = useState<number>(-1); // -1 = off
+  const [selectedTrackIdx, setSelectedTrackIdx] = useState<number>(-1);
   const [cues, setCues] = useState<SubtitleCue[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -220,6 +231,24 @@ export function SubtitleOverlay({
   const [customUrl, setCustomUrl] = useState("");
   const [tab, setTab] = useState<"tracks" | "search" | "url">("tracks");
   const fetchedUrlRef = useRef<string | null>(null);
+  const phimpalFetchedRef = useRef(false);
+
+  // Auto-fetch PhimPal subtitles on mount
+  useEffect(() => {
+    if (sourceId !== "phimpal" || !episodeId || phimpalFetchedRef.current) return;
+    phimpalFetchedRef.current = true;
+
+    fetchPhimPalSubs(episodeId).then((tracks) => {
+      if (tracks.length > 0) {
+        setAllTracks((prev) => [...tracks, ...prev]);
+        // Auto-select first Vietnamese subtitle
+        setSelectedTrackIdx(0);
+        if (__DEV__) {
+          console.log("[SubtitleOverlay:phimpal]", { count: tracks.length, first: tracks[0] });
+        }
+      }
+    });
+  }, [sourceId, episodeId]);
 
   // Sync external subtitles prop
   useEffect(() => {
@@ -246,60 +275,30 @@ export function SubtitleOverlay({
     setIsLoading(true);
     fetchedUrlRef.current = track.url;
 
-    (async () => {
-      try {
-        const res = await fetch(track.url);
+    fetch(track.url, {
+      headers: { "Referer": "https://legacy.phimpal.com/" },
+    })
+      .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const contentType = res.headers.get("content-type") || "";
-        let srtContent = "";
-
-        if (contentType.includes("zip") || track.url.endsWith(".zip")) {
-          // Unzip and find .srt or .vtt file inside
-          // Use blob -> base64 approach for React Native compatibility
-          const blob = await res.blob();
-          const base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const result = reader.result as string;
-              // Remove data URL prefix
-              const base64Data = result.split(",")[1] || result;
-              resolve(base64Data);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-
-          const zip = await JSZip.loadAsync(base64, { base64: true });
-          const subFile = Object.keys(zip.files).find(
-            (name) => /\.(srt|vtt|ass)$/i.test(name) && !zip.files[name].dir,
-          );
-          if (!subFile) throw new Error("No subtitle file found in ZIP");
-          srtContent = await zip.files[subFile].async("string");
-        } else {
-          srtContent = await res.text();
-        }
-
-        const parsed = parseCues(srtContent);
-        if (parsed.length === 0) throw new Error("Could not parse subtitle file");
-
+        return res.text();
+      })
+      .then((text) => {
+        const parsed = parseCues(text);
         if (__DEV__) {
           console.log("[SubtitleOverlay:parsed]", {
             cueCount: parsed.length,
             firstCue: parsed[0],
             lastCue: parsed[parsed.length - 1],
-            sampleRaw: srtContent.substring(0, 300),
           });
         }
-
+        if (parsed.length === 0) throw new Error("Could not parse subtitle file");
         setCues(parsed);
-      } catch (err) {
+      })
+      .catch((err) => {
         setCues([]);
         if (__DEV__) console.log("[SubtitleOverlay:fetchError]", (err as Error).message, track.url);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+      })
+      .finally(() => setIsLoading(false));
   }, [selectedTrackIdx, allTracks]);
 
   // Find current cue
@@ -310,55 +309,30 @@ export function SubtitleOverlay({
     return null;
   }, [cues, currentTime]);
 
-  // Debug: log subtitle state periodically
-  useEffect(() => {
-    if (__DEV__ && selectedTrackIdx >= 0) {
-      console.log("[SubtitleOverlay:state]", {
-        selectedTrackIdx,
-        cueCount: cues.length,
-        currentTime: Math.round(currentTime),
-        currentCueText: currentCue?.text?.substring(0, 40),
-        isLoading,
-        trackUrl: allTracks[selectedTrackIdx]?.url?.substring(0, 60),
-      });
-    }
-  }, [Math.floor(currentTime / 5)]); // log every 5 seconds
-
-  // Search online
+  // Search online (Subdl)
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
-
-    // Clean title for search: remove year/season suffixes, prefer English name
     let searchTitle = movieTitle || "";
-    // Remove Vietnamese parenthetical info like "(phần 1)" or "(2026)"
     searchTitle = searchTitle.replace(/\s*\((?:phần|phan|mùa|season)\s*\d+\)\s*/gi, "");
     searchTitle = searchTitle.replace(/\s*\(\d{4}\)\s*/g, "");
     searchTitle = searchTitle.trim();
 
-    if (__DEV__) {
-      console.log("[SubtitleOverlay:search]", { movieTitle, searchTitle, tmdbId, season, episode });
-    }
-
-    // Prefer TMDB ID for precise results, fallback to movie title
     const results = await searchSubdl({
       filmName: tmdbId ? undefined : searchTitle,
       tmdbId,
       season,
       episode,
-      languages: "VI,EN",
     });
     setSearchResults(results);
     setIsSearching(false);
   }, [movieTitle, tmdbId, season, episode]);
 
-  // Add track from search results
   const handleAddTrack = useCallback((track: SubtitleTrack) => {
     setAllTracks((prev) => [...prev, track]);
-    setSelectedTrackIdx(allTracks.length); // select the newly added track
+    setSelectedTrackIdx(allTracks.length);
     setShowPicker(false);
   }, [allTracks.length]);
 
-  // Add custom URL
   const handleAddCustomUrl = useCallback(() => {
     const url = customUrl.trim();
     if (!url) return;
@@ -378,7 +352,7 @@ export function SubtitleOverlay({
         </View>
       )}
 
-      {/* Subtitle button (always visible) */}
+      {/* Subtitle button */}
       <View style={styles.subtitleButton}>
         <Pressable
           onPress={() => { setTab("tracks"); setShowPicker(true); }}
@@ -401,44 +375,25 @@ export function SubtitleOverlay({
       >
         <Pressable onPress={() => setShowPicker(false)} style={styles.modalBackdrop}>
           <Pressable style={styles.pickerContainer} onPress={(e) => e.stopPropagation()}>
-            {/* Tabs */}
             <View style={styles.tabRow}>
-              <Pressable
-                onPress={() => setTab("tracks")}
-                style={[styles.tab, tab === "tracks" && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, tab === "tracks" && styles.tabTextActive]}>
-                  Phụ đề
-                </Text>
+              <Pressable onPress={() => setTab("tracks")} style={[styles.tab, tab === "tracks" && styles.tabActive]}>
+                <Text style={[styles.tabText, tab === "tracks" && styles.tabTextActive]}>Phụ đề</Text>
               </Pressable>
-              <Pressable
-                onPress={() => { setTab("search"); if (searchResults.length === 0) handleSearch(); }}
-                style={[styles.tab, tab === "search" && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, tab === "search" && styles.tabTextActive]}>
-                  Tìm online
-                </Text>
+              <Pressable onPress={() => { setTab("search"); if (searchResults.length === 0) handleSearch(); }} style={[styles.tab, tab === "search" && styles.tabActive]}>
+                <Text style={[styles.tabText, tab === "search" && styles.tabTextActive]}>Tìm online</Text>
               </Pressable>
-              <Pressable
-                onPress={() => setTab("url")}
-                style={[styles.tab, tab === "url" && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, tab === "url" && styles.tabTextActive]}>
-                  Nhập URL
-                </Text>
+              <Pressable onPress={() => setTab("url")} style={[styles.tab, tab === "url" && styles.tabActive]}>
+                <Text style={[styles.tabText, tab === "url" && styles.tabTextActive]}>Nhập URL</Text>
               </Pressable>
             </View>
 
-            {/* Tab content */}
             {tab === "tracks" && (
               <ScrollView style={styles.pickerScroll}>
                 <Pressable
                   onPress={() => { setSelectedTrackIdx(-1); setShowPicker(false); }}
                   style={[styles.pickerItem, selectedTrackIdx === -1 && styles.pickerItemActive]}
                 >
-                  <Text style={[styles.pickerItemText, selectedTrackIdx === -1 && styles.pickerItemTextActive]}>
-                    Tắt phụ đề
-                  </Text>
+                  <Text style={[styles.pickerItemText, selectedTrackIdx === -1 && styles.pickerItemTextActive]}>Tắt phụ đề</Text>
                 </Pressable>
                 {allTracks.map((track, idx) => (
                   <Pressable
@@ -446,42 +401,28 @@ export function SubtitleOverlay({
                     onPress={() => { setSelectedTrackIdx(idx); setShowPicker(false); }}
                     style={[styles.pickerItem, selectedTrackIdx === idx && styles.pickerItemActive]}
                   >
-                    <Text
-                      style={[styles.pickerItemText, selectedTrackIdx === idx && styles.pickerItemTextActive]}
-                      numberOfLines={2}
-                    >
+                    <Text style={[styles.pickerItemText, selectedTrackIdx === idx && styles.pickerItemTextActive]} numberOfLines={2}>
                       {track.lang}
                     </Text>
-                    {isLoading && selectedTrackIdx === idx && (
-                      <ActivityIndicator size="small" color={Colors.accent.primary} />
-                    )}
+                    {isLoading && selectedTrackIdx === idx && <ActivityIndicator size="small" color={Colors.accent.primary} />}
                   </Pressable>
                 ))}
                 {allTracks.length === 0 && (
-                  <Text style={styles.emptyText}>
-                    Chưa có phụ đề. Dùng tab "Tìm online" hoặc "Nhập URL" để thêm.
-                  </Text>
+                  <Text style={styles.emptyText}>Chưa có phụ đề. Dùng tab "Tìm online" hoặc "Nhập URL".</Text>
                 )}
               </ScrollView>
             )}
 
             {tab === "search" && (
               <View style={styles.searchContainer}>
-                {!SUBDL_API_KEY ? (
-                  <Text style={styles.emptyText}>
-                    Cần cấu hình EXPO_PUBLIC_SUBDL_API_KEY trong .env để tìm phụ đề online.
-                    {"\n\n"}Đăng ký miễn phí tại subdl.com/panel/register
-                  </Text>
-                ) : isSearching ? (
+                {isSearching ? (
                   <View style={styles.searchLoading}>
                     <ActivityIndicator color={Colors.accent.primary} />
-                    <Text style={styles.searchLoadingText}>
-                      Đang tìm phụ đề cho "{movieTitle}"...
-                    </Text>
+                    <Text style={styles.searchLoadingText}>Đang tìm "{movieTitle}"...</Text>
                   </View>
                 ) : searchResults.length === 0 ? (
                   <View style={styles.searchEmpty}>
-                    <Text style={styles.emptyText}>Không tìm thấy phụ đề.</Text>
+                    <Text style={styles.emptyText}>Không tìm thấy phụ đề từ Subdl.</Text>
                     <Pressable onPress={handleSearch} style={styles.retryBtn}>
                       <Text style={styles.retryBtnText}>Thử lại</Text>
                     </Pressable>
@@ -489,20 +430,12 @@ export function SubtitleOverlay({
                 ) : (
                   <ScrollView style={styles.pickerScroll}>
                     {searchResults.map((result, idx) => (
-                      <Pressable
-                        key={`search-${idx}`}
-                        onPress={() => handleAddTrack(result)}
-                        style={styles.pickerItem}
-                      >
-                        <Text style={styles.pickerItemText} numberOfLines={2}>
-                          {result.lang}
-                        </Text>
+                      <Pressable key={`search-${idx}`} onPress={() => handleAddTrack(result)} style={styles.pickerItem}>
+                        <Text style={styles.pickerItemText} numberOfLines={2}>{result.lang}</Text>
                         <Ionicons color={Colors.accent.primary} name="add-circle-outline" size={20} />
                       </Pressable>
                     ))}
-                    <Text style={styles.noteText}>
-                      Chọn subtitle để thêm vào player. File ZIP sẽ tự động giải nén.
-                    </Text>
+                    <Text style={styles.noteText}>Lưu ý: File .zip từ Subdl cần giải nén thủ công.</Text>
                   </ScrollView>
                 )}
               </View>
@@ -510,9 +443,7 @@ export function SubtitleOverlay({
 
             {tab === "url" && (
               <View style={styles.urlContainer}>
-                <Text style={styles.urlLabel}>
-                  Nhập URL file phụ đề (.srt hoặc .vtt):
-                </Text>
+                <Text style={styles.urlLabel}>Nhập URL file phụ đề (.srt hoặc .vtt):</Text>
                 <TextInput
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -522,10 +453,7 @@ export function SubtitleOverlay({
                   style={styles.urlInput}
                   value={customUrl}
                 />
-                <Pressable
-                  onPress={handleAddCustomUrl}
-                  style={({ pressed }) => [styles.urlBtn, pressed && { opacity: 0.7 }]}
-                >
+                <Pressable onPress={handleAddCustomUrl} style={({ pressed }) => [styles.urlBtn, pressed && { opacity: 0.7 }]}>
                   <Text style={styles.urlBtnText}>Thêm phụ đề</Text>
                 </Pressable>
               </View>
@@ -536,6 +464,7 @@ export function SubtitleOverlay({
     </>
   );
 }
+
 
 const styles = StyleSheet.create({
   subtitleContainer: {

@@ -1201,6 +1201,8 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
           tmdbId={tmdbId}
           season={season}
           episode={episode}
+          sourceId={stream.sourceId}
+          episodeId={episodeId}
         />
       )}
 

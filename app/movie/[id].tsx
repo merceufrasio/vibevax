@@ -201,6 +201,7 @@ export default function MovieDetailScreen() {
             posterUrl={movie.poster}
             tmdbId={sourceDetail?.tmdbId}
             season={sourceDetail?.tmdbSeason}
+            episodeId={selectedEpisodeId}
           />
         ) : (
           <MovieHeader
