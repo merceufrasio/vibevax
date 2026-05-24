@@ -256,26 +256,26 @@ export function SubtitleOverlay({
 
         if (contentType.includes("zip") || track.url.endsWith(".zip")) {
           // Unzip and find .srt or .vtt file inside
-          const arrayBuffer = await res.arrayBuffer();
-          const zip = await JSZip.loadAsync(arrayBuffer);
+          // Use blob -> base64 approach for React Native compatibility
+          const blob = await res.blob();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              // Remove data URL prefix
+              const base64Data = result.split(",")[1] || result;
+              resolve(base64Data);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          const zip = await JSZip.loadAsync(base64, { base64: true });
           const subFile = Object.keys(zip.files).find(
             (name) => /\.(srt|vtt|ass)$/i.test(name) && !zip.files[name].dir,
           );
           if (!subFile) throw new Error("No subtitle file found in ZIP");
-          // Use nodebuffer type for proper encoding, fallback to binarystring
-          try {
-            const buf = await zip.files[subFile].async("nodebuffer");
-            srtContent = buf.toString("utf-8");
-          } catch {
-            // React Native may not support nodebuffer, use array and manual decode
-            const arr = await zip.files[subFile].async("uint8array");
-            // Manual UTF-8 decode for React Native
-            const chunks: string[] = [];
-            for (let i = 0; i < arr.length; i += 4096) {
-              chunks.push(String.fromCharCode(...arr.slice(i, i + 4096)));
-            }
-            srtContent = decodeURIComponent(escape(chunks.join("")));
-          }
+          srtContent = await zip.files[subFile].async("string");
         } else {
           srtContent = await res.text();
         }
