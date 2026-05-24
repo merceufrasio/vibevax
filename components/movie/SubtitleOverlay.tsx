@@ -289,6 +289,8 @@ export function SubtitleOverlay({
             first200: text.substring(0, 200),
             hasNewlines: text.includes("\n"),
             hasArrow: text.includes("-->"),
+            hasDoubleNewline: text.includes("\n\n"),
+            charCodes20: Array.from(text.substring(0, 50)).map((c) => c.charCodeAt(0)),
           });
         }
         const parsed = parseCues(text);
