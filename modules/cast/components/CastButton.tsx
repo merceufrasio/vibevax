@@ -1,23 +1,20 @@
 /**
- * CastButton — Shows cast availability and triggers device picker.
+ * CastButton — Shows cast availability and triggers native cast dialog.
  *
  * - Active state (cast icon highlighted) when devices are available
  * - Disabled/inactive state when no devices available (no tap response)
- * - Triggers DevicePicker on tap when devices are available
+ * - Triggers native Google Cast dialog on tap (works in any orientation)
  *
  * Validates: Requirements 8.1, 8.2, 8.3
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { StyleSheet, TouchableOpacity, type ViewStyle } from "react-native";
 
 import { Colors } from "@/constants/Colors";
 
 import { useCastSession } from "../hooks/useCastSession";
-import type { CastDevice } from "../types";
-
-import { DevicePicker } from "./DevicePicker";
 
 export interface CastButtonProps {
   /** Icon size, default 24 */
@@ -30,14 +27,10 @@ export interface CastButtonProps {
 
 /**
  * CastButton component that indicates cast device availability.
- *
- * Req 8.1: Active state when devices are available
- * Req 8.2: Disabled/inactive state when no devices available
- * Req 8.3: Triggers DevicePicker on tap when devices are available
+ * Uses native Google Cast dialog which works correctly in landscape/fullscreen.
  */
 export function CastButton({ size = 24, color, style }: CastButtonProps) {
-  const { state, connect, startDiscovery } = useCastSession();
-  const [pickerVisible, setPickerVisible] = useState(false);
+  const { state, startDiscovery } = useCastSession();
 
   // Auto-trigger discovery when CastButton mounts so devices become available
   useEffect(() => {
@@ -59,37 +52,26 @@ export function CastButton({ size = 24, color, style }: CastButtonProps) {
   // Determine icon name based on connection state
   const iconName = isConnected ? "tv" : "tv-outline";
 
-  const handlePress = () => {
-    if (isAvailable) {
-      setPickerVisible(true);
+  const handlePress = async () => {
+    try {
+      // Use native Google Cast dialog — always works regardless of view hierarchy
+      const { CastContext } = require("react-native-google-cast");
+      CastContext.showCastDialog();
+    } catch (error) {
+      console.warn("[CastButton] Failed to show cast dialog:", error);
     }
   };
 
-  const handleDeviceSelected = async (device: CastDevice) => {
-    setPickerVisible(false);
-    await connect(device);
-  };
-
   return (
-    <>
-      <TouchableOpacity
-        accessibilityLabel="Cast to TV"
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !isAvailable }}
-        activeOpacity={isAvailable ? 0.7 : 1}
-        disabled={!isAvailable}
-        onPress={handlePress}
-        style={[styles.button, { width: size + 16, height: size + 16 }, style]}
-      >
-        <Ionicons color={iconColor} name={iconName} size={size} />
-      </TouchableOpacity>
-
-      <DevicePicker
-        onClose={() => setPickerVisible(false)}
-        onDeviceSelected={handleDeviceSelected}
-        visible={pickerVisible}
-      />
-    </>
+    <TouchableOpacity
+      accessibilityLabel="Cast to TV"
+      accessibilityRole="button"
+      activeOpacity={0.7}
+      onPress={handlePress}
+      style={[styles.button, { width: size + 16, height: size + 16 }, style]}
+    >
+      <Ionicons color={iconColor} name={iconName} size={size} />
+    </TouchableOpacity>
   );
 }
 
