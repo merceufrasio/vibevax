@@ -100,6 +100,11 @@ export default function SettingsScreen() {
             onChangeText={(text) => {
               if (text === "3117") {
                 setDraftUrl(DEFAULT_REGISTRY_URL);
+                // Auto-trigger refresh after setting the registry URL
+                setTimeout(async () => {
+                  await setRegistryUrl(DEFAULT_REGISTRY_URL);
+                  await refresh();
+                }, 100);
               } else {
                 setDraftUrl(text);
               }
@@ -111,13 +116,14 @@ export default function SettingsScreen() {
           />
           <View style={styles.actions}>
             <Button
-              label={isRefreshing ? "Đang tải" : "Refresh"}
+              disabled={isRefreshing}
+              label={isRefreshing ? "Đang tải..." : "Refresh"}
               onPress={async () => {
                 await setRegistryUrl(draftUrl);
                 await refresh();
               }}
               size="md"
-              style={styles.actionButton}
+              style={[styles.actionButton, isRefreshing ? { opacity: 0.5 } : null]}
             />
           </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}
