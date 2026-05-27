@@ -32,6 +32,7 @@ const INITIAL_STATE: CastState = {
   volume: 1.0,
   isMuted: false,
   error: null,
+  lastCastPosition: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -79,11 +80,26 @@ function createCastStore() {
   }
 
   function setState(partial: Partial<CastState>): void {
+    const previousState = state;
     state = { ...state, ...partial };
 
     // Invariant: session must be null when not connected (Requirement 5.4)
     if (!state.isConnected) {
       state = { ...state, session: null };
+    }
+
+    // Req 9.4, 9.5: Preserve last cast position when session ends
+    // Snapshot position when transitioning from connected to disconnected
+    if (previousState.isConnected && !state.isConnected) {
+      const position = previousState.playbackPosition;
+      const duration = previousState.playbackDuration;
+      // Only preserve if there was meaningful playback (position > 0 or duration > 0)
+      if (position > 0 || duration > 0) {
+        state = {
+          ...state,
+          lastCastPosition: { position, duration },
+        };
+      }
     }
 
     notify();
@@ -216,6 +232,23 @@ function createCastStore() {
     setState({ error });
   }
 
+  /**
+   * Get the last cast position preserved after session loss.
+   * Returns the position/duration snapshot, or null if no session has ended
+   * with a valid position.
+   * Req 9.4, 9.5: Expose last cast position as startPosition for local playback resumption.
+   */
+  function getLastCastPosition(): { position: number; duration: number } | null {
+    return state.lastCastPosition;
+  }
+
+  /**
+   * Clear the last cast position (e.g., after local playback has resumed from it).
+   */
+  function clearLastCastPosition(): void {
+    setState({ lastCastPosition: null });
+  }
+
   return {
     getState,
     setState,
@@ -227,6 +260,8 @@ function createCastStore() {
     setPlaybackPosition,
     setVolume,
     setError,
+    getLastCastPosition,
+    clearLastCastPosition,
   };
 }
 

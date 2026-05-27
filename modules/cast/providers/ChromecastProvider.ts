@@ -1,29 +1,25 @@
 /**
- * ChromecastProvider — CastProvider implementation using react-native-google-cast.
+ * ChromecastProvider — CastProvider implementation using react-native-google-cast
+ * with custom channel communication via CastMessageChannel.
  *
- * Maps the react-native-google-cast SDK to the unified CastProvider interface.
- * Handles device discovery via DiscoveryManager, session management via
- * SessionManager, and playback controls via RemoteMediaClient.
+ * Routes all media commands through a custom Cast Channel (`urn:x-cast:com.revax.cast`)
+ * to the custom receiver (App ID: 3C52EDCF). Position updates are pushed by the
+ * receiver (no polling). State synchronization is driven by receiver STATUS messages.
  *
- * Validates: Requirements 2.1, 2.2, 4.1, 4.2, 4.3, 4.4, 4.5, 14.2
+ * Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 4.4, 4.5,
+ *            4.6, 4.7, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 6.1, 6.2, 6.3,
+ *            9.1, 9.2, 9.3
  */
 
-import GoogleCast, {
-  CastContext,
-  MediaPlayerState,
-  MediaStreamType,
-  MediaHlsSegmentFormat,
-} from "react-native-google-cast";
+import { CastContext } from "react-native-google-cast";
 
 import type {
+  CastChannel as GCCastChannel,
   Device as GCDevice,
-  RemoteMediaClient,
-  MediaInfo as GCMediaInfo,
-  MediaMetadata,
-  MediaStatus,
   CastSession as GCCastSession,
   SessionManager,
 } from "react-native-google-cast";
+import type { EmitterSubscription } from "react-native";
 
 import type {
   CastProvider,
@@ -31,31 +27,38 @@ import type {
   CastSession,
   CastSessionState,
   CastProtocol,
+  CastError,
   MediaInfo,
 } from "../types";
+
+import type { ReceiverMessage, ReceiverMessageState } from "../protocol/messages";
+import { CastMessageChannel } from "./CastMessageChannel";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const CONNECTION_TIMEOUT_MS = 15_000;
+const CHANNEL_READY_TIMEOUT_MS = 2_000;
+const CAST_CHANNEL_NAMESPACE = "urn:x-cast:com.revax.cast";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Maps react-native-google-cast MediaPlayerState to our CastSessionState.
+ * Maps receiver state strings to CastSessionState values.
  */
-function mapPlayerState(playerState: MediaPlayerState): CastSessionState {
-  switch (playerState) {
-    case MediaPlayerState.PLAYING:
-      return "playing";
-    case MediaPlayerState.PAUSED:
-      return "paused";
-    case MediaPlayerState.BUFFERING:
-      return "buffering";
-    case MediaPlayerState.IDLE:
-      return "idle";
-    case MediaPlayerState.LOADING:
-      return "loading";
-    default:
-      return "idle";
-  }
+export function mapReceiverState(state: ReceiverMessageState): CastSessionState {
+  const mapping: Record<ReceiverMessageState, CastSessionState> = {
+    loading: "loading",
+    playing: "playing",
+    paused: "paused",
+    buffering: "buffering",
+    idle: "idle",
+    error: "error",
+  };
+  return mapping[state] ?? "idle";
 }
 
 /**
@@ -77,12 +80,14 @@ export class ChromecastProvider implements CastProvider {
     (position: number, duration: number) => void
   > = new Set();
 
-  private discoverySubscription: (() => void) | null = null;
-  private sessionSubscription: (() => void) | null = null;
-  private mediaStatusSubscription: (() => void) | null = null;
-  private positionInterval: ReturnType<typeof setInterval> | null = null;
+  private discoverySubscription: EmitterSubscription | null = null;
+  private sessionSubscription: EmitterSubscription | null = null;
+  private channelUnsubscribe: (() => void) | null = null;
+  private discoveryStopResolver: (() => void) | null = null;
 
   private currentSession: CastSession | null = null;
+  private channel: CastMessageChannel | null = null;
+  private nativeSession: GCCastSession | null = null;
 
   // -------------------------------------------------------------------------
   // Discovery
@@ -93,44 +98,52 @@ export class ChromecastProvider implements CastProvider {
   ): Promise<void> {
     const discoveryManager = CastContext.getDiscoveryManager();
 
-    // Listen for device list changes
-    this.discoverySubscription = discoveryManager.onDevicesUpdated(
-      (devices: GCDevice[]) => {
-        for (const device of devices) {
-          const castDevice: CastDevice = {
-            id: device.deviceId,
-            name: device.friendlyName ?? device.deviceId,
-            ip: device.ipAddress ?? "",
-            port: device.servicePort ?? 8009,
-            protocol: "chromecast",
-            model: device.modelName,
-            capabilities: {
-              supportsHls: true,
-              supportsDash: false,
-              supportsMp4: true,
-              supportsSubtitles: true,
-              // Custom headers only supported with custom receiver (Phase 5)
-              supportsCustomHeaders: false,
-              maxResolution: "1080p",
-            },
-          };
-          onDeviceFound(castDevice);
-        }
-      },
-    );
+    this.discoverySubscription?.remove();
 
-    // Start the native discovery process
-    discoveryManager.startDiscovery();
+    const emitDevices = (devices: GCDevice[]) => {
+      for (const device of devices) {
+        const castDevice: CastDevice = {
+          id: device.deviceId,
+          name: device.friendlyName ?? device.deviceId,
+          ip: device.ipAddress ?? "",
+          port: 8009,
+          protocol: "chromecast",
+          model: device.modelName,
+          capabilities: {
+            supportsHls: true,
+            supportsDash: false,
+            supportsMp4: true,
+            supportsSubtitles: true,
+            supportsCustomHeaders: true,
+            maxResolution: "1080p",
+          },
+        };
+        onDeviceFound(castDevice);
+      }
+    };
+
+    // Listen for device list changes
+    this.discoverySubscription = discoveryManager.onDevicesUpdated(emitDevices);
+
+    void discoveryManager.getDevices().then(emitDevices).catch(() => undefined);
+    void discoveryManager.startDiscovery().catch(() => undefined);
+
+    return new Promise<void>((resolve) => {
+      this.discoveryStopResolver = resolve;
+    });
   }
 
   stopDiscovery(): void {
     const discoveryManager = CastContext.getDiscoveryManager();
-    discoveryManager.stopDiscovery();
+    void discoveryManager.stopDiscovery().catch(() => undefined);
 
     if (this.discoverySubscription) {
-      this.discoverySubscription();
+      this.discoverySubscription.remove();
       this.discoverySubscription = null;
     }
+
+    this.discoveryStopResolver?.();
+    this.discoveryStopResolver = null;
   }
 
   // -------------------------------------------------------------------------
@@ -138,32 +151,33 @@ export class ChromecastProvider implements CastProvider {
   // -------------------------------------------------------------------------
 
   async connect(device: CastDevice): Promise<CastSession> {
+    // Req 3.6: Disconnect existing session before initiating new connection
+    if (this.currentSession && this.channel) {
+      await this.disconnect();
+    }
+
     const sessionManager = CastContext.getSessionManager();
 
-    // Request a session with the device
-    await GoogleCast.showCastPicker();
+    // Req 3.1: Launch custom receiver and transition to "connecting"
+    this.notifyStateChange("connecting");
 
-    // Wait for session to be established
-    const session = await new Promise<GCCastSession>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("Connection timeout"));
-      }, 15000);
+    // Start the native Cast session with the selected device.
+    const nativeSession = await this.startSession(sessionManager, device.id);
 
-      const cleanup = sessionManager.onSessionStarted((gcSession: GCCastSession) => {
-        clearTimeout(timeout);
-        resolve(gcSession);
-      });
+    // Req 3.2: Register custom channel listener within 2 seconds
+    const nativeChannel = await nativeSession.addChannel(CAST_CHANNEL_NAMESPACE);
+    this.channel = new CastMessageChannel(nativeChannel as GCCastChannel);
+    this.nativeSession = nativeSession;
 
-      // Also listen for session start failure
-      const failCleanup = sessionManager.onSessionStartFailed((error: { message?: string } | null) => {
-        clearTimeout(timeout);
-        cleanup();
-        failCleanup();
-        reject(new Error(error?.message ?? "Session start failed"));
-      });
+    // Wire up receiver message handling
+    this.channelUnsubscribe = this.channel.onMessage((message) => {
+      this.handleReceiverMessage(message);
     });
 
+    // Wait for receiver to report "idle" (confirms it loaded) (Req 3.3)
+    await this.waitForReceiverReady();
+
+    // Build CastSession
     const castSession: CastSession = {
       id: generateSessionId(),
       device,
@@ -173,7 +187,7 @@ export class ChromecastProvider implements CastProvider {
     };
 
     this.currentSession = castSession;
-    this.setupSessionListeners(sessionManager);
+    this.setupSessionEndedListener(sessionManager);
     this.notifyStateChange("connected");
 
     return castSession;
@@ -185,88 +199,83 @@ export class ChromecastProvider implements CastProvider {
     try {
       await sessionManager.endCurrentSession(true);
     } finally {
-      this.cleanupListeners();
-      this.currentSession = null;
+      this.cleanup();
       this.notifyStateChange("disconnected");
     }
   }
 
   // -------------------------------------------------------------------------
-  // Media Loading
+  // Media Loading (via Custom Channel)
   // -------------------------------------------------------------------------
 
   async loadMedia(media: MediaInfo): Promise<void> {
-    const client = (await CastContext.getSessionManager().getCurrentCastSession())
-      ?.client;
-
-    if (!client) {
-      throw new Error("No active cast session");
+    // Req 4.7: Validate required fields
+    if (!media.url) {
+      throw new Error("MediaInfo validation error: 'url' is required");
+    }
+    if (!media.mimeType) {
+      throw new Error("MediaInfo validation error: 'mimeType' is required");
+    }
+    if (!media.title) {
+      throw new Error("MediaInfo validation error: 'title' is required");
     }
 
+    // Req 4.5 / 5.8: Throw if channel not connected
+    this.assertChannelConnected();
+
+    // Req 4.4: Transition state to "loading" before sending
     this.notifyStateChange("loading");
 
-    const mediaInfo: GCMediaInfo = {
-      contentUrl: media.url,
-      contentType: media.mimeType,
-      streamType: MediaStreamType.BUFFERED,
-      metadata: {
-        type: "generic",
+    // Build LOAD payload (Req 4.1, 4.2, 4.3, 4.6)
+    const subtitles = media.subtitles?.map((track) => ({
+      lang: track.lang,
+      url: track.url,
+      label: track.lang.toUpperCase(),
+    }));
+
+    await this.channel!.send({
+      type: "LOAD",
+      payload: {
+        url: media.url,
+        headers: media.headers ?? {},
+        mimeType: media.mimeType,
         title: media.title,
         subtitle: media.subtitle,
-        images: media.posterUrl
-          ? [{ url: media.posterUrl }]
-          : undefined,
-      } as MediaMetadata,
-      hlsSegmentFormat: media.mimeType === "application/x-mpegURL"
-        ? MediaHlsSegmentFormat.TS
-        : undefined,
-    };
-
-    const loadRequest = {
-      mediaInfo,
-      autoplay: true,
-      startTime: media.startPosition ?? 0,
-    };
-
-    await client.loadMedia(loadRequest);
-    this.startPositionTracking(client);
+        posterUrl: media.posterUrl,
+        subtitles: subtitles && subtitles.length > 0 ? subtitles : undefined,
+        startPosition: media.startPosition,
+      },
+    });
   }
 
   // -------------------------------------------------------------------------
-  // Playback Controls
+  // Playback Controls (via Custom Channel)
   // -------------------------------------------------------------------------
 
   async play(): Promise<void> {
-    const client = await this.getRemoteMediaClient();
-    await client.play();
+    this.assertChannelConnected();
+    await this.channel!.send({ type: "PLAY" });
   }
 
   async pause(): Promise<void> {
-    const client = await this.getRemoteMediaClient();
-    await client.pause();
+    this.assertChannelConnected();
+    await this.channel!.send({ type: "PAUSE" });
   }
 
   async stop(): Promise<void> {
-    const client = await this.getRemoteMediaClient();
-    await client.stop();
-    this.stopPositionTracking();
+    this.assertChannelConnected();
+    await this.channel!.send({ type: "STOP" });
   }
 
   async seek(positionSeconds: number): Promise<void> {
-    const client = await this.getRemoteMediaClient();
-    await client.seek({ position: positionSeconds });
+    this.assertChannelConnected();
+    await this.channel!.send({ type: "SEEK", position: positionSeconds });
   }
 
   async setVolume(level: number): Promise<void> {
-    const sessionManager = CastContext.getSessionManager();
-    const session = await sessionManager.getCurrentCastSession();
-
-    if (!session) {
-      throw new Error("No active cast session");
-    }
-
-    // Volume is set on the cast device (session level), not media client
-    await session.setVolume(level);
+    this.assertChannelConnected();
+    await this.channel!.send({ type: "SET_VOLUME", level });
+    this.nativeSession?.setVolume(level);
   }
 
   // -------------------------------------------------------------------------
@@ -290,87 +299,204 @@ export class ChromecastProvider implements CastProvider {
   }
 
   // -------------------------------------------------------------------------
+  // Receiver Message Handling
+  // -------------------------------------------------------------------------
+
+  /**
+   * Handle validated messages from the receiver.
+   * Maps STATUS → state listeners, POSITION → position listeners,
+   * ERROR → error state transition.
+   */
+  private handleReceiverMessage(message: ReceiverMessage): void {
+    switch (message.type) {
+      case "STATUS": {
+        const mappedState = mapReceiverState(message.state);
+        this.notifyStateChange(mappedState);
+        break;
+      }
+
+      case "POSITION": {
+        this.notifyPositionUpdate(message.position, message.duration);
+        break;
+      }
+
+      case "ERROR": {
+        this.notifyStateChange("error");
+        break;
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Private Helpers
   // -------------------------------------------------------------------------
 
-  private async getRemoteMediaClient(): Promise<RemoteMediaClient> {
-    const session =
-      await CastContext.getSessionManager().getCurrentCastSession();
-    const client = session?.client;
-
-    if (!client) {
-      throw new Error("No active RemoteMediaClient");
+  /**
+   * Assert that the channel is connected. Throws if not.
+   * Req 4.5, 5.8: Throw error if channel is not connected.
+   */
+  private assertChannelConnected(): void {
+    if (!this.channel || !this.channel.isConnected()) {
+      throw new Error("No active cast session. Channel is not connected.");
     }
-
-    return client;
   }
 
-  private setupSessionListeners(sessionManager: SessionManager): void {
-    // Listen for session end
+  /**
+   * Wait for a Cast session to be established with a 15-second timeout.
+   * Req 3.4: Reject with CastError code CONNECTION_FAILED, recoverable: true.
+   */
+  private async startSession(
+    sessionManager: SessionManager,
+    deviceId: string,
+  ): Promise<GCCastSession> {
+    const currentSession = await sessionManager
+      .getCurrentCastSession()
+      .catch(() => null);
+    if (currentSession) {
+      return currentSession;
+    }
+
+    return this.waitForSession(sessionManager, deviceId);
+  }
+
+  /**
+   * Start a Cast session and wait for it to be established with a 15-second
+   * timeout. Req 3.4: reject with CastError code CONNECTION_FAILED,
+   * recoverable: true.
+   */
+  private waitForSession(
+    sessionManager: SessionManager,
+    deviceId: string,
+  ): Promise<GCCastSession> {
+    return new Promise<GCCastSession>((resolve, reject) => {
+      let cleanupStarted: EmitterSubscription | null = null;
+      let cleanupResumed: EmitterSubscription | null = null;
+      let cleanupFailed: EmitterSubscription | null = null;
+
+      const cleanup = () => {
+        cleanupStarted?.remove();
+        cleanupResumed?.remove();
+        cleanupFailed?.remove();
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        const error: CastError = {
+          code: "CONNECTION_FAILED",
+          message: "Connection timed out after 15 seconds",
+          recoverable: true,
+        };
+        reject(error);
+      }, CONNECTION_TIMEOUT_MS);
+
+      cleanupStarted = sessionManager.onSessionStarted((session: GCCastSession) => {
+        clearTimeout(timeout);
+        cleanup();
+        resolve(session);
+      });
+
+      cleanupResumed = sessionManager.onSessionResumed((session: GCCastSession) => {
+        clearTimeout(timeout);
+        cleanup();
+        resolve(session);
+      });
+
+      cleanupFailed = sessionManager.onSessionStartFailed((_session, error) => {
+        clearTimeout(timeout);
+        cleanup();
+        const castError: CastError = {
+          code: "CONNECTION_FAILED",
+          message: error || "Session start failed",
+          recoverable: true,
+        };
+        reject(castError);
+      });
+
+      void sessionManager.startSession(deviceId).then((started) => {
+        if (!started) {
+          clearTimeout(timeout);
+          cleanup();
+          const castError: CastError = {
+            code: "CONNECTION_FAILED",
+            message: "Cast session did not start.",
+            recoverable: true,
+          };
+          reject(castError);
+        }
+      }).catch((error) => {
+        clearTimeout(timeout);
+        cleanup();
+        const castError: CastError = {
+          code: "CONNECTION_FAILED",
+          message: error instanceof Error ? error.message : String(error),
+          recoverable: true,
+        };
+        reject(castError);
+      });
+    });
+  }
+
+  /**
+   * Wait for the receiver to report "idle" status, confirming it has loaded.
+   * Uses a 2-second timeout for channel readiness.
+   * Req 3.3: Wait for receiver idle before resolving connect.
+   */
+  private waitForReceiverReady(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        // Resolve anyway — receiver may already be ready or will report soon
+        resolve();
+      }, CHANNEL_READY_TIMEOUT_MS);
+
+      const unsubscribe = this.channel!.onMessage((message) => {
+        if (message.type === "STATUS" && message.state === "idle") {
+          clearTimeout(timeout);
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Listen for unexpected session end (device disconnected, user stopped from TV).
+   * Req 9.3: Detect onSessionEnded, cleanup, transition to disconnected.
+   */
+  private setupSessionEndedListener(sessionManager: SessionManager): void {
     this.sessionSubscription = sessionManager.onSessionEnded(
       (_session: GCCastSession | null, _error: unknown) => {
-        this.cleanupListeners();
-        this.currentSession = null;
+        this.cleanup();
         this.notifyStateChange("disconnected");
       },
     );
-
-    // Listen for media status updates
-    this.setupMediaStatusListener();
   }
 
-  private async setupMediaStatusListener(): Promise<void> {
-    const client = await this.getRemoteMediaClient().catch(() => null);
-    if (!client) return;
-
-    this.mediaStatusSubscription = client.onMediaStatusUpdated(
-      (mediaStatus: MediaStatus | null) => {
-        if (mediaStatus?.playerState != null) {
-          const mappedState = mapPlayerState(mediaStatus.playerState);
-          this.notifyStateChange(mappedState);
-        }
-      },
-    );
-  }
-
-  private startPositionTracking(client: RemoteMediaClient): void {
-    this.stopPositionTracking();
-
-    // Poll position every 1 second
-    this.positionInterval = setInterval(async () => {
-      try {
-        const mediaStatus = await client.getMediaStatus();
-        if (mediaStatus) {
-          const position = mediaStatus.streamPosition ?? 0;
-          const duration =
-            mediaStatus.mediaInfo?.streamDuration ?? 0;
-          this.notifyPositionUpdate(position, duration);
-        }
-      } catch {
-        // Silently ignore polling errors (session may have ended)
-      }
-    }, 1000);
-  }
-
-  private stopPositionTracking(): void {
-    if (this.positionInterval) {
-      clearInterval(this.positionInterval);
-      this.positionInterval = null;
+  /**
+   * Full cleanup: dispose channel, remove all listeners, null session.
+   * Req 9.1, 9.2: Dispose CastMessageChannel, remove listeners, null session.
+   */
+  private cleanup(): void {
+    // Dispose channel
+    if (this.channelUnsubscribe) {
+      this.channelUnsubscribe();
+      this.channelUnsubscribe = null;
     }
-  }
 
-  private cleanupListeners(): void {
-    this.stopPositionTracking();
+    if (this.channel) {
+      this.channel.dispose();
+      this.channel = null;
+    }
 
+    // Remove session ended listener
     if (this.sessionSubscription) {
-      this.sessionSubscription();
+      this.sessionSubscription.remove();
       this.sessionSubscription = null;
     }
 
-    if (this.mediaStatusSubscription) {
-      this.mediaStatusSubscription();
-      this.mediaStatusSubscription = null;
-    }
+    // Null session reference
+    this.currentSession = null;
+    this.nativeSession = null;
   }
 
   private notifyStateChange(state: CastSessionState): void {

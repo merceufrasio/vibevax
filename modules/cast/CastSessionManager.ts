@@ -153,6 +153,7 @@ export class CastSessionManager {
       const key = `${device.ip}:${device.name}`;
       if (!deviceMap.has(key)) {
         deviceMap.set(key, device);
+        castStore.setDevices(Array.from(deviceMap.values()));
       }
     };
 
@@ -418,7 +419,8 @@ export class CastSessionManager {
   /**
    * Seek to a position on the connected device.
    *
-   * - Clamps positionSeconds to [0, playbackDuration] (Req 4.3)
+   * - Treats NaN/non-finite values as 0 (Req 10.5)
+   * - Clamps positionSeconds to [0, playbackDuration] (Req 4.3, 10.2)
    * - Delegates to the active provider's seek() method (Req 4.3)
    * - Updates playback position on success (Req 4.3, 4.8)
    * - Rejects with CastError if no active session (Req 4.6)
@@ -427,10 +429,13 @@ export class CastSessionManager {
   async seek(positionSeconds: number): Promise<void> {
     const provider = this.getActiveProvider();
 
-    // Req 4.3: Clamp position to [0, playbackDuration]
+    // Req 10.5: Treat NaN/non-finite values as 0
+    const sanitized = Number.isFinite(positionSeconds) ? positionSeconds : 0;
+
+    // Req 4.3, 10.2: Clamp position to [0, playbackDuration]
     const state = castStore.getState();
     const duration = state.playbackDuration;
-    const clampedPosition = Math.max(0, Math.min(positionSeconds, duration));
+    const clampedPosition = Math.max(0, Math.min(sanitized, duration));
 
     try {
       await provider.seek(clampedPosition);
@@ -445,7 +450,8 @@ export class CastSessionManager {
   /**
    * Set volume on the connected device.
    *
-   * - Clamps level to [0.0, 1.0] (Req 4.4)
+   * - Treats NaN/non-finite values as 0 (Req 10.5)
+   * - Clamps level to [0.0, 1.0] (Req 4.4, 10.1)
    * - Delegates to the active provider's setVolume() method (Req 4.4)
    * - Updates volume in CastState on success (Req 4.4, 4.8)
    * - Rejects with CastError if no active session (Req 4.6)
@@ -454,8 +460,11 @@ export class CastSessionManager {
   async setVolume(level: number): Promise<void> {
     const provider = this.getActiveProvider();
 
-    // Req 4.4: Clamp volume to [0.0, 1.0]
-    const clampedLevel = Math.max(0.0, Math.min(level, 1.0));
+    // Req 10.5: Treat NaN/non-finite values as 0
+    const sanitized = Number.isFinite(level) ? level : 0;
+
+    // Req 4.4, 10.1: Clamp volume to [0.0, 1.0]
+    const clampedLevel = Math.max(0.0, Math.min(sanitized, 1.0));
 
     try {
       await provider.setVolume(clampedLevel);
@@ -535,6 +544,22 @@ export class CastSessionManager {
       throw error;
     }
 
+    // Req 10.3: Validate stream URL before proceeding
+    const streamUrl = params.stream.url ?? "";
+    if (
+      !streamUrl ||
+      (!streamUrl.startsWith("http://") && !streamUrl.startsWith("https://"))
+    ) {
+      const error: CastError = {
+        code: "MEDIA_LOAD_FAILED",
+        message:
+          "Cannot cast media: stream URL is empty or does not start with http:// or https://.",
+        recoverable: false,
+      };
+      castStore.setError(error);
+      throw error;
+    }
+
     // Req 3.7: Transition session to `loading` before stream resolution begins
     castStore.transitionSessionState("loading");
 
@@ -569,9 +594,9 @@ export class CastSessionManager {
 
       // Req 3.2: If stream is embed, use HeadlessExtractService to resolve direct URL
       if (HeadlessExtractService.needsExtraction(params.stream)) {
-        // In dev mode with MockCastProvider, headless extraction won't work
-        // because there's no real WebView. Skip extraction and use the URL as-is.
-        if (__DEV__) {
+        // In dev mode the hidden WebView bridge may not be configured yet.
+        // Skip extraction and use the URL as-is.
+        if (typeof __DEV__ !== "undefined" && __DEV__) {
           console.warn(
             "[CastSessionManager] Embed stream detected in dev mode — skipping extraction, using URL directly:",
             params.stream.url,
@@ -624,6 +649,16 @@ export class CastSessionManager {
         startPosition: params.startPosition,
         sourceId: params.sourceId,
       };
+
+      // Req 10.4: PhimPal Referer header injection
+      // When sourceId is "phimpal", ensure headers contain a Referer entry
+      if (params.sourceId === "phimpal") {
+        const PHIMPAL_BASE_URL = "https://legacy.phimpal.com";
+        mediaInfo.headers = {
+          ...mediaInfo.headers,
+          Referer: PHIMPAL_BASE_URL,
+        };
+      }
 
       // Req 3.1: Load media on the connected device via provider
       await provider.loadMedia(mediaInfo);

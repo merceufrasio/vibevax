@@ -48,7 +48,15 @@
       "expo-font",
       "expo-screen-orientation",
       "./plugins/withVideoLandscape",
-      "./plugins/withFixBuildErrors"
+      "./plugins/withFixBuildErrors",
+      [
+        "react-native-google-cast",
+        {
+          "receiverAppId": "3C52EDCF",
+          "expandedController": false,
+          "iosStartDiscoveryAfterFirstTapOnCastButton": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

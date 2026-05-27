@@ -208,7 +208,7 @@ describe("ConnectionRecoveryManager", () => {
       manager.startMonitoring(provider, device);
 
       // Make connect always fail
-      provider.connect.mockRejectedValue(new Error("Connection refused"));
+      vi.mocked(provider.connect).mockRejectedValue(new Error("Connection refused"));
 
       provider.triggerStateChange("playing");
       provider.triggerStateChange("disconnected");
@@ -226,7 +226,7 @@ describe("ConnectionRecoveryManager", () => {
       manager.startMonitoring(provider, device);
 
       // Make connect succeed on first attempt
-      provider.connect.mockResolvedValue(makeMockSession());
+      vi.mocked(provider.connect).mockResolvedValue(makeMockSession());
 
       provider.triggerStateChange("playing");
       provider.triggerPositionUpdate(30, 120);
@@ -252,7 +252,7 @@ describe("ConnectionRecoveryManager", () => {
       manager.startMonitoring(provider, device);
 
       // Make connect always fail
-      provider.connect.mockRejectedValue(new Error("Connection refused"));
+      vi.mocked(provider.connect).mockRejectedValue(new Error("Connection refused"));
 
       provider.triggerStateChange("playing");
       provider.triggerStateChange("disconnected");

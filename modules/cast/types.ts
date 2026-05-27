@@ -150,6 +150,13 @@ export interface CastState {
   isMuted: boolean;
   /** Current error, if any */
   error: CastError | null;
+  /**
+   * Last known cast position preserved after session ends.
+   * Available as a startPosition for local playback resumption.
+   * Null when no cast session has ended with a valid position.
+   * Validates: Requirements 9.4, 9.5
+   */
+  lastCastPosition: { position: number; duration: number } | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -288,4 +288,103 @@ describe("castStore", () => {
       expect(castStore.getState().error).toBeNull();
     });
   });
+
+  describe("position preservation on session loss (Req 9.4, 9.5)", () => {
+    it("preserves position when session is disconnected via setSession(null)", () => {
+      // Set up an active session with playback position
+      castStore.setSession(makeMockSession({ state: "connected" }));
+      castStore.setPlaybackPosition(45, 120);
+
+      // Disconnect
+      castStore.setSession(null);
+
+      // Position should be preserved in lastCastPosition
+      const state = castStore.getState();
+      expect(state.lastCastPosition).toEqual({ position: 45, duration: 120 });
+    });
+
+    it("preserves position when transitioning to disconnected state", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(90, 200);
+
+      // Transition to disconnected
+      castStore.transitionSessionState("disconnected");
+
+      const state = castStore.getState();
+      expect(state.lastCastPosition).toEqual({ position: 90, duration: 200 });
+    });
+
+    it("preserves position on unexpected disconnect (setState isConnected: false)", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(60, 180);
+
+      // Simulate unexpected disconnect
+      castStore.setState({ isConnected: false });
+
+      const state = castStore.getState();
+      expect(state.lastCastPosition).toEqual({ position: 60, duration: 180 });
+    });
+
+    it("does not preserve position when there was no meaningful playback", () => {
+      castStore.setSession(makeMockSession({ state: "connected" }));
+      // Position stays at 0, duration stays at 0
+
+      castStore.setSession(null);
+
+      const state = castStore.getState();
+      expect(state.lastCastPosition).toBeNull();
+    });
+
+    it("does not reset playbackPosition and playbackDuration on disconnect", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(75, 300);
+
+      castStore.setSession(null);
+
+      const state = castStore.getState();
+      // The raw position/duration fields remain unchanged
+      expect(state.playbackPosition).toBe(75);
+      expect(state.playbackDuration).toBe(300);
+    });
+
+    it("getLastCastPosition returns the preserved position", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(30, 100);
+
+      castStore.setSession(null);
+
+      expect(castStore.getLastCastPosition()).toEqual({ position: 30, duration: 100 });
+    });
+
+    it("getLastCastPosition returns null when no session has ended", () => {
+      expect(castStore.getLastCastPosition()).toBeNull();
+    });
+
+    it("clearLastCastPosition clears the preserved position", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(50, 150);
+      castStore.setSession(null);
+
+      expect(castStore.getLastCastPosition()).not.toBeNull();
+
+      castStore.clearLastCastPosition();
+
+      expect(castStore.getLastCastPosition()).toBeNull();
+      expect(castStore.getState().lastCastPosition).toBeNull();
+    });
+
+    it("lastCastPosition is null in initial state", () => {
+      expect(castStore.getState().lastCastPosition).toBeNull();
+    });
+
+    it("lastCastPosition is null after reset", () => {
+      castStore.setSession(makeMockSession({ state: "playing" }));
+      castStore.setPlaybackPosition(50, 150);
+      castStore.setSession(null);
+
+      castStore.reset();
+
+      expect(castStore.getState().lastCastPosition).toBeNull();
+    });
+  });
 });
