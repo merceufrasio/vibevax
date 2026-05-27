@@ -192,7 +192,7 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
     const gqlBody = JSON.stringify({
       operationName: "Subtitles",
       variables: { titleId },
-      query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language files isDefault likes dislikes } }`,
+      query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language fileName isDefault likes dislikes } }`,
     });
 
     const res = await fetch("https://legacy.phimpal.com/b/g", {
@@ -212,7 +212,7 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
           id: string;
           subsceneId: string;
           language: string;
-          files: string[];
+          fileName: string;
           isDefault: boolean;
           likes: number;
           dislikes: number;
@@ -230,7 +230,7 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
         const fallbackBody = JSON.stringify({
           operationName: "Subtitles",
           variables: { titleId: watchId },
-          query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language files isDefault likes dislikes } }`,
+          query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language fileName isDefault likes dislikes } }`,
         });
         const fallbackRes = await fetch("https://legacy.phimpal.com/b/g", {
           method: "POST",
@@ -264,7 +264,7 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
 function buildSubtitleTracks(subs: Array<{
   subsceneId: string;
   language: string;
-  files: string[];
+  fileName: string;
   isDefault: boolean;
   likes: number;
   dislikes: number;
@@ -281,10 +281,10 @@ function buildSubtitleTracks(subs: Array<{
   // Build direct SRT URLs using pattern:
   // /b/subtitle/{subsceneId}/{filename}/srt.css
   return sorted
-    .filter((s) => s.files?.length > 0 && s.subsceneId)
+    .filter((s) => s.fileName && s.subsceneId)
     .map((s) => ({
       lang: s.language === "vi" ? "Tiếng Việt" : s.language === "en" ? "English" : s.language,
-      url: `https://legacy.phimpal.com/b/subtitle/${s.subsceneId}/${encodeURI(s.files[0])}/srt.css`,
+      url: `https://legacy.phimpal.com/b/subtitle/${s.subsceneId}/${encodeURI(s.fileName)}/srt.css`,
     }));
 }
 
