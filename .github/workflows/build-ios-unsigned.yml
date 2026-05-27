@@ -23,7 +23,7 @@ jobs:
           xcodebuild -version
           # Download iOS platform (required for storyboard compilation on macos-15 runners)
           echo "Downloading iOS platform..."
-          xcodebuild -downloadPlatform iOS
+          xcodebuild -downloadPlatform iOS || true
           echo "iOS platform download complete"
           # List available SDKs
           xcodebuild -showsdks | grep iphoneos
