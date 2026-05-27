@@ -143,9 +143,52 @@ function parseCues(content: string): SubtitleCue[] {
 async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
   const idMatch = episodeId.match(/(\d+)/);
   if (!idMatch) return [];
-  const titleId = idMatch[1];
+  const watchId = idMatch[1];
 
   try {
+    // Step 1: Get the title info from TitleWatch to find the correct titleId
+    // The watch ID might be an episode ID; we need the parent title ID for subtitles
+    let titleId = watchId;
+
+    try {
+      const watchBody = JSON.stringify({
+        operationName: "TitleWatch",
+        variables: { id: watchId, server: "1" },
+        query: `query TitleWatch($id: String!, $server: String) { title(id: $id, server: $server) { id srcUrl type number parent { id number parent { id __typename } __typename } __typename } }`,
+      });
+
+      const watchRes = await fetch("https://legacy.phimpal.com/b/g", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Origin": "https://legacy.phimpal.com",
+          "Referer": `https://legacy.phimpal.com/watch/${watchId}`,
+        },
+        body: watchBody,
+      });
+
+      if (watchRes.ok) {
+        const watchData = await watchRes.json() as any;
+        const titleInfo = watchData?.data?.title;
+        // For episodes, use the parent's parent ID (show ID) or parent ID (season ID)
+        // For movies, use the title ID directly
+        if (titleInfo?.parent?.parent?.id) {
+          titleId = String(titleInfo.parent.parent.id);
+        } else if (titleInfo?.parent?.id) {
+          titleId = String(titleInfo.parent.id);
+        } else if (titleInfo?.id) {
+          titleId = String(titleInfo.id);
+        }
+      }
+    } catch {
+      // If TitleWatch fails, continue with watchId as titleId
+    }
+
+    if (__DEV__) {
+      console.log("[fetchPhimPalSubs]", { watchId, titleId });
+    }
+
+    // Step 2: Query subtitles with the resolved titleId
     const gqlBody = JSON.stringify({
       operationName: "Subtitles",
       variables: { titleId },
@@ -157,7 +200,7 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
       headers: {
         "Content-Type": "application/json",
         "Origin": "https://legacy.phimpal.com",
-        "Referer": `https://legacy.phimpal.com/watch/${titleId}`,
+        "Referer": `https://legacy.phimpal.com/watch/${watchId}`,
       },
       body: gqlBody,
     });
@@ -178,28 +221,71 @@ async function fetchPhimPalSubs(episodeId: string): Promise<SubtitleTrack[]> {
     };
 
     const subs = data?.data?.subtitles;
-    if (!Array.isArray(subs) || subs.length === 0) return [];
+    if (!Array.isArray(subs) || subs.length === 0) {
+      // Fallback: try with watchId directly if titleId didn't work
+      if (titleId !== watchId) {
+        if (__DEV__) {
+          console.log("[fetchPhimPalSubs] No subs with titleId, trying watchId directly");
+        }
+        const fallbackBody = JSON.stringify({
+          operationName: "Subtitles",
+          variables: { titleId: watchId },
+          query: `query Subtitles($titleId: String!) { subtitles(titleId: $titleId) { id subsceneId language files isDefault likes dislikes } }`,
+        });
+        const fallbackRes = await fetch("https://legacy.phimpal.com/b/g", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Origin": "https://legacy.phimpal.com",
+            "Referer": `https://legacy.phimpal.com/watch/${watchId}`,
+          },
+          body: fallbackBody,
+        });
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json() as any;
+          const fallbackSubs = fallbackData?.data?.subtitles;
+          if (Array.isArray(fallbackSubs) && fallbackSubs.length > 0) {
+            return buildSubtitleTracks(fallbackSubs);
+          }
+        }
+      }
+      return [];
+    }
 
-    // Sort: Vietnamese first, default first, then by likes
-    const sorted = [...subs].sort((a, b) => {
-      if (a.language === "vi" && b.language !== "vi") return -1;
-      if (a.language !== "vi" && b.language === "vi") return 1;
-      if (a.isDefault && !b.isDefault) return -1;
-      if (!a.isDefault && b.isDefault) return 1;
-      return (b.likes - b.dislikes) - (a.likes - a.dislikes);
-    });
-
-    // Build direct SRT URLs using pattern:
-    // /b/subtitle/{subsceneId}/{filename}/srt.css
-    return sorted
-      .filter((s) => s.files?.length > 0 && s.subsceneId)
-      .map((s) => ({
-        lang: s.language === "vi" ? "Tiếng Việt" : s.language === "en" ? "English" : s.language,
-        url: `https://legacy.phimpal.com/b/subtitle/${s.subsceneId}/${encodeURI(s.files[0])}/srt.css`,
-      }));
-  } catch {
+    return buildSubtitleTracks(subs);
+  } catch (e) {
+    if (__DEV__) {
+      console.log("[fetchPhimPalSubs:error]", e);
+    }
     return [];
   }
+}
+
+function buildSubtitleTracks(subs: Array<{
+  subsceneId: string;
+  language: string;
+  files: string[];
+  isDefault: boolean;
+  likes: number;
+  dislikes: number;
+}>): SubtitleTrack[] {
+  // Sort: Vietnamese first, default first, then by likes
+  const sorted = [...subs].sort((a, b) => {
+    if (a.language === "vi" && b.language !== "vi") return -1;
+    if (a.language !== "vi" && b.language === "vi") return 1;
+    if (a.isDefault && !b.isDefault) return -1;
+    if (!a.isDefault && b.isDefault) return 1;
+    return (b.likes - b.dislikes) - (a.likes - a.dislikes);
+  });
+
+  // Build direct SRT URLs using pattern:
+  // /b/subtitle/{subsceneId}/{filename}/srt.css
+  return sorted
+    .filter((s) => s.files?.length > 0 && s.subsceneId)
+    .map((s) => ({
+      lang: s.language === "vi" ? "Tiếng Việt" : s.language === "en" ? "English" : s.language,
+      url: `https://legacy.phimpal.com/b/subtitle/${s.subsceneId}/${encodeURI(s.files[0])}/srt.css`,
+    }));
 }
 
 /** Search subtitles from Subdl API */
