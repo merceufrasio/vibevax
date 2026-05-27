@@ -11,7 +11,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -421,15 +420,11 @@ export function SubtitleOverlay({
         </Pressable>
       </View>
 
-      {/* Picker modal */}
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setShowPicker(false)}
-        transparent
-        visible={showPicker}
-      >
-        <Pressable onPress={() => setShowPicker(false)} style={styles.modalBackdrop}>
-          <Pressable style={styles.pickerContainer} onPress={(e) => e.stopPropagation()}>
+      {/* Picker overlay (replaces Modal to work in landscape fullscreen) */}
+      {showPicker && (
+        <View style={styles.modalBackdrop}>
+          <Pressable onPress={() => setShowPicker(false)} style={StyleSheet.absoluteFill} />
+          <View style={styles.pickerContainer}>
             <View style={styles.tabRow}>
               <Pressable onPress={() => setTab("tracks")} style={[styles.tab, tab === "tracks" && styles.tabActive]}>
                 <Text style={[styles.tabText, tab === "tracks" && styles.tabTextActive]}>Phụ đề</Text>
@@ -513,9 +508,9 @@ export function SubtitleOverlay({
                 </Pressable>
               </View>
             )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+        </View>
+      )}
     </>
   );
 }
@@ -559,10 +554,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modalBackdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 100,
   },
   pickerContainer: {
     backgroundColor: Colors.background.surface,

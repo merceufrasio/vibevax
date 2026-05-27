@@ -10,7 +10,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   FlatList,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -85,16 +84,12 @@ export function DevicePicker({
     </TouchableOpacity>
   );
 
+  if (!visible) return null;
+
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      presentationStyle="overFullScreen"
-      transparent
-      visible={visible}
-    >
-      <Pressable onPress={onClose} style={styles.overlay}>
-        <View onStartShouldSetResponder={() => true} style={styles.sheet}>
+    <View style={styles.overlay}>
+      <Pressable onPress={onClose} style={StyleSheet.absoluteFill} />
+      <View style={styles.sheet}>
           {/* Handle bar */}
           <View style={styles.handleBar} />
 
@@ -133,16 +128,16 @@ export function DevicePicker({
             <Text style={styles.closeButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </Pressable>
-    </Modal>
+      </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.overlay,
     justifyContent: "flex-end",
+    zIndex: 100,
   },
   sheet: {
     backgroundColor: Colors.background.surface,
