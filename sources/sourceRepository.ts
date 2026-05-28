@@ -268,7 +268,7 @@ async function fetchText(
   }
 
   // Detect login page HTML in response body (fetch auto-followed redirect to wp-login.php)
-  if (challengeInput && isLoginPageHtml(rawText)) {
+  if (challengeInput && isLoginPageHtml(rawText) && (response.url.includes("/wp-login.php") || response.redirected)) {
     const loginUrl = detectLoginRedirect(response.url) ?? `https://${new URL(url).hostname}/wp-login.php`;
     throw new SourceLoginRequiredError(
       createSourceLoginRequest({

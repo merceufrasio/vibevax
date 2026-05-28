@@ -21,7 +21,8 @@ const COOKIE_EXTRACT_SCRIPT = `
     window.ReactNativeWebView.postMessage(JSON.stringify({
       type: "login-cookies",
       cookies: document.cookie,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      currentUrl: window.location.href
     }));
   })();
   true;
@@ -64,8 +65,8 @@ export default function SourceLoginScreen() {
     const currentUrl = navState.url ?? "";
     const prevUrl = previousUrlRef.current;
 
+    // Detect login success: navigated away from wp-login.php
     if (isLoginSuccessNavigation(currentUrl, prevUrl)) {
-      // Login succeeded — extract cookies
       handledRef.current = true;
       setStatusText("Đăng nhập thành công, đang lưu phiên...");
       webViewRef.current?.injectJavaScript(COOKIE_EXTRACT_SCRIPT);
@@ -74,15 +75,42 @@ export default function SourceLoginScreen() {
     previousUrlRef.current = currentUrl;
   };
 
+  const handleLoadEnd = () => {
+    if (handledRef.current) return;
+
+    // Also check on load end — some WordPress sites redirect via JS after login
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        var url = window.location.href;
+        if (url.indexOf('/wp-login.php') === -1 && url.indexOf('${new URL(loginUrl).hostname}') !== -1) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: "login-cookies",
+            cookies: document.cookie,
+            userAgent: navigator.userAgent,
+            currentUrl: url
+          }));
+        }
+      })();
+      true;
+    `);
+  };
+
   const handleMessage = (event: { nativeEvent: { data: string } }) => {
     try {
       const payload = JSON.parse(event.nativeEvent.data) as {
         type?: string;
         cookies?: string;
         userAgent?: string;
+        currentUrl?: string;
       };
 
       if (payload.type !== "login-cookies") return;
+      if (handledRef.current && !payload.currentUrl) return;
+
+      // Skip if still on login page
+      if (payload.currentUrl && payload.currentUrl.includes("/wp-login.php")) return;
+
+      handledRef.current = true;
 
       const cookies = payload.cookies ?? "";
       const userAgent = payload.userAgent;
@@ -102,7 +130,7 @@ export default function SourceLoginScreen() {
         url: `https://${domain}/`,
       });
 
-      // Store cookies in memory
+      // Store cookies in memory (even if empty — shared cookie jar handles the real cookies)
       setSourceBrowserCookies(sourceId, { cookies, userAgent });
 
       // Persist cookies to AsyncStorage
@@ -141,6 +169,7 @@ export default function SourceLoginScreen() {
         <WebView
           ref={webViewRef}
           javaScriptEnabled
+          onLoadEnd={handleLoadEnd}
           onMessage={handleMessage}
           onNavigationStateChange={handleNavigationStateChange}
           originWhitelist={["*"]}

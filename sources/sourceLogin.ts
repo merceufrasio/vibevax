@@ -52,16 +52,17 @@ export function detectLoginRedirect(redirectUrl: string): string | null {
 
 /**
  * Detects if HTML response body contains a WordPress login form,
- * indicating an expired session.
+ * indicating an expired session or login-required page.
+ * Only matches actual login PAGES, not pages that merely reference wp-login.php.
  */
 export function isLoginPageHtml(html: string): boolean {
   const lower = html.toLowerCase();
-  return (
-    lower.includes("/wp-login.php") &&
-    (lower.includes('id="loginform"') ||
-      lower.includes('id="user_login"') ||
-      lower.includes("wp-login"))
-  );
+  // Must have the login form ID — this is specific to the actual wp-login page
+  const hasLoginForm =
+    lower.includes('id="loginform"') || lower.includes('id="user_login"');
+  // Must also reference wp-login.php (confirms it's a WordPress login page)
+  const hasWpLoginRef = lower.includes("/wp-login.php");
+  return hasLoginForm && hasWpLoginRef;
 }
 
 /**
