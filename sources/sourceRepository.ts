@@ -139,10 +139,28 @@ function normalizeStreamResult(result: StreamResult): StreamResult {
 }
 
 function isCloudflareChallengeHtml(html: string) {
-  return (
-    /cloudflare/i.test(html) &&
-    /verify you are human|checking your browser|xác minh/i.test(html)
-  );
+  // Only match actual Cloudflare challenge pages, not content pages that
+  // merely reference "cloudflare" or "xác minh" in their text/links.
+  const lower = html.toLowerCase();
+  const hasCloudflare = lower.includes("cloudflare");
+  if (!hasCloudflare) return false;
+
+  // Must have specific Cloudflare challenge markers (not just the word "cloudflare")
+  const hasChallengeMarker =
+    lower.includes("verify you are human") ||
+    lower.includes("checking your browser") ||
+    lower.includes("__cf_chl") ||
+    lower.includes("cf-turnstile") ||
+    lower.includes("cf-challenge-running");
+
+  if (hasChallengeMarker) return true;
+
+  // "xác minh" alone is too broad — only match if combined with CF-specific elements
+  if (lower.includes("xác minh") && (lower.includes("cf-turnstile") || lower.includes("__cf_chl"))) {
+    return true;
+  }
+
+  return false;
 }
 
 async function fetchText(
