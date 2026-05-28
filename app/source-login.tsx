@@ -71,14 +71,18 @@ export default function SourceLoginScreen() {
     if (isLoginSuccessNavigation(currentUrl, prevUrl)) {
       handledRef.current = true;
       setStatusText("Đăng nhập thành công, đang lưu phiên...");
-      webViewRef.current?.injectJavaScript(COOKIE_EXTRACT_SCRIPT);
+      // Don't inject here — page isn't loaded yet. Wait for onLoadEnd.
     }
 
     previousUrlRef.current = currentUrl;
   };
 
   const handleLoadEnd = () => {
-    if (handledRef.current) return;
+    // If login was detected as successful, extract cookies now that page is loaded
+    if (handledRef.current) {
+      webViewRef.current?.injectJavaScript(COOKIE_EXTRACT_SCRIPT);
+      return;
+    }
 
     // Also check on load end — some WordPress sites redirect via JS after login
     webViewRef.current?.injectJavaScript(`
