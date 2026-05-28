@@ -21,13 +21,23 @@ import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
 import { setSourceBrowserCookies } from "@/sources/sourceBrowserSession";
 
-// Hardcoded cookies for sources that require authentication
-// Update these when they expire
-const SOURCE_COOKIES: Record<string, { cookies: string; userAgent?: string }> = {
-  clbpx: {
-    cookies: "wordpress_logged_in_4f11e66873917c29d453ff7fc4f26e7b=ariehpuah3%40gmail.com%7C1780112370%7CKaCjauXjMgcGtVjD1VaOlGemisfmEkXiHttMdEVgYFR%7Ce98212f86ad875da678e4d06c626636e167dd0284edd969ab1cf51c79ee62eaa",
-  },
-};
+const AUTH_URL = "https://raw.githubusercontent.com/merceufrasio/vibevax/main/auth.json";
+
+async function loadRemoteSourceCookies() {
+  try {
+    const response = await fetch(AUTH_URL, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json() as Record<string, { c: string; e?: number }>;
+    for (const [sourceId, entry] of Object.entries(data)) {
+      if (!entry.c) continue;
+      // Decode base64 cookie
+      const cookies = atob(entry.c);
+      setSourceBrowserCookies(sourceId, { cookies });
+    }
+  } catch {
+    // Silent fail — source will just show error if cookies missing
+  }
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -39,11 +49,9 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // Load hardcoded source cookies into memory on startup
+  // Fetch source cookies from remote on startup
   useEffect(() => {
-    for (const [sourceId, data] of Object.entries(SOURCE_COOKIES)) {
-      setSourceBrowserCookies(sourceId, data);
-    }
+    void loadRemoteSourceCookies();
   }, []);
 
   useEffect(() => {
