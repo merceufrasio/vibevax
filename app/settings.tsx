@@ -27,7 +27,6 @@ import {
   isSourceChallengeRequiredError,
   subscribeToSourceChallenge,
 } from "@/sources/sourceChallenge";
-import { isSourceChallengeRequiredError } from "@/sources/sourceChallenge";
 import type { AdBlockLogEntry } from "@/sources/types";
 import { clearAdBlockLogs, loadAdBlockLogs } from "@/utils/adBlockLogger";
 
