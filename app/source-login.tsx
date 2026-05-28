@@ -65,6 +65,8 @@ export default function SourceLoginScreen() {
     const currentUrl = navState.url ?? "";
     const prevUrl = previousUrlRef.current;
 
+    setStatusText(`Nav: ${currentUrl.substring(0, 60)}`);
+
     // Detect login success: navigated away from wp-login.php
     if (isLoginSuccessNavigation(currentUrl, prevUrl)) {
       handledRef.current = true;
@@ -115,6 +117,9 @@ export default function SourceLoginScreen() {
       const cookies = payload.cookies ?? "";
       const userAgent = payload.userAgent;
 
+      // Show debug info
+      setStatusText(`Cookies: ${cookies.length} chars, UA: ${userAgent ? "yes" : "no"}, URL: ${payload.currentUrl?.substring(0, 40) ?? "?"}`);
+
       // Extract domain from loginUrl
       let domain = "";
       try {
@@ -136,8 +141,10 @@ export default function SourceLoginScreen() {
       // Persist cookies to AsyncStorage
       persistSourceCookies(sourceId, { cookies, userAgent }, domain);
 
-      // Navigate back — caller will retry the request
-      router.back();
+      // Navigate back after short delay so debug info is visible
+      setTimeout(() => {
+        router.back();
+      }, 2000);
     } catch {
       // Ignore malformed messages
     }
