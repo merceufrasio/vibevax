@@ -48,6 +48,16 @@ const GENERIC_BLOCK_RULES: BlockRule[] = [
 ];
 
 const SOURCE_SPECIFIC_BLOCK_RULES: Record<string, BlockRule[]> = {
+  clbpx: [
+    {
+      id: "clbpx-gambling-ads",
+      pattern: /(?:rocketplay|casino|betting|bet365|1xbet|pin-up|mostbet|vulkan|joycasino|playamo)/i,
+    },
+    {
+      id: "clbpx-ad-popups",
+      pattern: /(?:popunder|clickunder|juicyads|exoclick|trafficjunky|adsterra|propellerads|hilltopads)/i,
+    },
+  ],
   nguonc: [
     {
       id: "nguonc-hiller-vast-ad",
@@ -1044,8 +1054,16 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
             }
           }}
           onShouldStartLoadWithRequest={(request) => {
-            // clbpx player loads video from external CDN — allow all navigation
+            // clbpx: allow clbphimxua.com and video CDN, block ad redirects
             if (stream.sourceId === "clbpx") {
+              const blocked = getBlockedRule(request.url, [
+                ...GENERIC_BLOCK_RULES,
+                ...(SOURCE_SPECIFIC_BLOCK_RULES.clbpx ?? []),
+              ]);
+              if (blocked) {
+                return false;
+              }
+              // Allow all non-blocked requests (video CDN domains vary)
               return true;
             }
 
