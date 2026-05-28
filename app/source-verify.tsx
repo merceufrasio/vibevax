@@ -177,7 +177,15 @@ function buildVerificationScript(prefetchUrls: string[]) {
         return true;
       }
 
-      var urls = ${JSON.stringify(prefetchUrls)};
+      // If we're on xac-minh.php, don't report verified yet — wait for auto-fill
+      if (window.location.href.indexOf("xac-minh") !== -1) {
+        window.__REVAX_VERIFY_RUNNING__ = false;
+        return true;
+      }
+
+      // Wait a moment to ensure page is fully settled (not mid-redirect)
+      setTimeout(function() {
+        var urls = ${JSON.stringify(prefetchUrls)};
 
       Promise.all(
         urls.map(function (url) {
@@ -215,6 +223,7 @@ function buildVerificationScript(prefetchUrls: string[]) {
         }));
         window.__REVAX_VERIFY_RUNNING__ = false;
       });
+      }, 1500); // End setTimeout — wait 1.5s for page to settle
 
       return true;
     })();
