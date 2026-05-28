@@ -21,9 +21,9 @@ jobs:
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
           xcodebuild -version
-          # Download iOS platform (required for storyboard compilation on macos-15 runners)
+          # Download iOS platform (required for macos-15 runners)
           echo "Downloading iOS platform..."
-          xcodebuild -downloadPlatform iOS || true
+          xcodebuild -downloadPlatform iOS
           echo "iOS platform download complete"
           # List available SDKs
           xcodebuild -showsdks | grep iphoneos
@@ -171,7 +171,7 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/App.xcarchive \
-            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
