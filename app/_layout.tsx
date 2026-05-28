@@ -19,7 +19,10 @@ import {
 import { AppLoadingScreen } from "@/components/shared/AppLoadingScreen";
 import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
-import { setSourceBrowserCookies } from "@/sources/sourceBrowserSession";
+import {
+  activateSourceBrowserSession,
+  setSourceBrowserCookies,
+} from "@/sources/sourceBrowserSession";
 
 const AUTH_URL = "https://raw.githubusercontent.com/merceufrasio/vibevax/feat/clbpx-webview-login/auth.json";
 
@@ -33,6 +36,8 @@ async function loadRemoteSourceCookies() {
       // Decode base64 cookie
       const cookies = atob(entry.c);
       setSourceBrowserCookies(sourceId, { cookies });
+      // Activate browser session so fetches go through hidden WebView
+      activateSourceBrowserSession({ sourceId, url: `https://clbphimxua.com/` });
     }
   } catch {
     // Silent fail — source will just show error if cookies missing

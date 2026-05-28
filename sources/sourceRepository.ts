@@ -8,10 +8,8 @@ import {
   SourceChallengeRequiredError,
 } from "@/sources/sourceChallenge";
 import {
-  getSourceBrowserCookies,
   hasSourceBrowserSession,
   requestSourceBrowserFetch,
-  setSourceBrowserCookies,
 } from "@/sources/sourceBrowserSession";
 import {
   createSourceLoginRequest,
@@ -165,55 +163,10 @@ async function fetchText(
     return cachedHtml;
   }
 
-  // If source has persisted cookies, use them directly in fetch headers
-  // This bypasses the browser session path entirely for login-based sources
-  if (challengeInput) {
-    const sourceCookies = getSourceBrowserCookies(challengeInput.sourceId);
-    if (sourceCookies?.cookies) {
-      if (__DEV__) {
-        console.log("[fetchText:cookieAuth]", { sourceId: challengeInput.sourceId, url: url.substring(0, 80) });
-      }
-      const cookieHeaders: Record<string, string> = {
-        ...(options?.headers as Record<string, string> | undefined),
-        Cookie: sourceCookies.cookies,
-      };
-      if (sourceCookies.userAgent) {
-        cookieHeaders["User-Agent"] = sourceCookies.userAgent;
-      }
-
-      const cookieResponse = await fetch(url, { ...options, headers: cookieHeaders });
-      const cookieText = await cookieResponse.text();
-
-      if (__DEV__) {
-        console.log("[fetchText:cookieAuth:response]", {
-          url: url.substring(0, 80),
-          status: cookieResponse.status,
-          redirected: cookieResponse.redirected,
-          finalUrl: cookieResponse.url?.substring(0, 80),
-          len: cookieText.length,
-          isLoginPage: isLoginPageHtml(cookieText),
-        });
-      }
-
-      // Check if session expired (got redirected to login page)
-      if (isLoginPageHtml(cookieText) && (cookieResponse.url.includes("/wp-login.php") || cookieResponse.redirected)) {
-        // Clear stale cookies
-        setSourceBrowserCookies(challengeInput.sourceId, { cookies: "" });
-        throw new SourceLoginRequiredError(
-          createSourceLoginRequest({
-            sourceId: challengeInput.sourceId,
-            sourceName: challengeInput.sourceName,
-            loginUrl: detectLoginRedirect(cookieResponse.url) ?? `https://${new URL(url).hostname}/wp-login.php`,
-            originalUrl: url,
-          }),
-        );
-      }
-
-      if (cookieResponse.ok) {
-        return cookieText;
-      }
-    }
-  }
+  // If source has persisted cookies AND a browser session, let the browser session
+  // path handle it (below). iOS strips custom Cookie headers from fetch(), so we
+  // must use the hidden WebView which has sharedCookiesEnabled.
+  // The cookie auth path via fetch headers does NOT work on iOS.
 
   if (
     challengeInput &&
