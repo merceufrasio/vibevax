@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
-import { useRouter } from "expo-router";
 
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 import { SourceRepository } from "@/sources/sourceRepository";
@@ -9,14 +7,10 @@ import {
   subscribeToSourceChallenge,
   type SourceChallengeRequest,
 } from "@/sources/sourceChallenge";
-import {
-  isSourceLoginRequiredError,
-} from "@/sources/sourceLogin";
 import { enrichSourceMovieDetailWithMetadata } from "@/sources/tmdbMetadata";
 import type { SourceMovieDetail, StreamResult } from "@/sources/types";
 
 export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
-  const router = useRouter();
   const { registry } = useSourceSettings();
   const [detail, setDetail] = useState<SourceMovieDetail | null>(null);
   const [repository, setRepository] = useState<SourceRepository | null>(null);
@@ -66,29 +60,6 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
       if (isSourceChallengeRequiredError(loadError)) {
         setChallenge(loadError.challenge);
         setError(loadError.message);
-      } else if (isSourceLoginRequiredError(loadError)) {
-        setError(loadError.message);
-        Alert.alert(
-          "Đăng nhập",
-          "Nguồn này yêu cầu đăng nhập",
-          [
-            { text: "Hủy", style: "cancel" },
-            {
-              text: "Đăng nhập",
-              onPress: () => {
-                router.push({
-                  pathname: "/source-login",
-                  params: {
-                    sourceId: loadError.login.sourceId,
-                    sourceName: loadError.login.sourceName ?? "",
-                    loginUrl: loadError.login.loginUrl,
-                    originalUrl: loadError.login.originalUrl,
-                  },
-                });
-              },
-            },
-          ],
-        );
       } else {
         setError(String(loadError));
       }
@@ -177,29 +148,6 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
           if (isSourceChallengeRequiredError(navError)) {
             setChallenge(navError.challenge);
             setError(navError.message);
-          } else if (isSourceLoginRequiredError(navError)) {
-            setError(navError.message);
-            Alert.alert(
-              "Đăng nhập",
-              "Nguồn này yêu cầu đăng nhập",
-              [
-                { text: "Hủy", style: "cancel" },
-                {
-                  text: "Đăng nhập",
-                  onPress: () => {
-                    router.push({
-                      pathname: "/source-login",
-                      params: {
-                        sourceId: navError.login.sourceId,
-                        sourceName: navError.login.sourceName ?? "",
-                        loginUrl: navError.login.loginUrl,
-                        originalUrl: navError.login.originalUrl,
-                      },
-                    });
-                  },
-                },
-              ],
-            );
           } else {
             setError(String(navError));
           }
@@ -236,30 +184,6 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
         if (isSourceChallengeRequiredError(streamError)) {
           setChallenge(streamError.challenge);
           setError(streamError.message);
-        } else if (isSourceLoginRequiredError(streamError)) {
-          setError(streamError.message);
-          setPendingEpisodeId(null);
-          Alert.alert(
-            "Đăng nhập",
-            "Nguồn này yêu cầu đăng nhập",
-            [
-              { text: "Hủy", style: "cancel" },
-              {
-                text: "Đăng nhập",
-                onPress: () => {
-                  router.push({
-                    pathname: "/source-login",
-                    params: {
-                      sourceId: streamError.login.sourceId,
-                      sourceName: streamError.login.sourceName ?? "",
-                      loginUrl: streamError.login.loginUrl,
-                      originalUrl: streamError.login.originalUrl,
-                    },
-                  });
-                },
-              },
-            ],
-          );
         } else {
           setError(String(streamError));
           setPendingEpisodeId(null);
@@ -269,7 +193,7 @@ export function useSourceMovieDetail(sourceId?: string, movieId?: string) {
         setIsResolvingStream(false);
       }
     },
-    [repository, router],
+    [repository],
   );
 
   useEffect(() => {

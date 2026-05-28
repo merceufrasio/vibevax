@@ -19,7 +19,15 @@ import {
 import { AppLoadingScreen } from "@/components/shared/AppLoadingScreen";
 import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
-import { restoreAllSourceCookies } from "@/sources/sourceCookiePersistence";
+import { setSourceBrowserCookies } from "@/sources/sourceBrowserSession";
+
+// Hardcoded cookies for sources that require authentication
+// Update these when they expire
+const SOURCE_COOKIES: Record<string, { cookies: string; userAgent?: string }> = {
+  clbpx: {
+    cookies: "wordpress_logged_in_4f11e66873917c29d453ff7fc4f26e7b=ariehpuah3%40gmail.com%7C1780112370%7CKaCjauXjMgcGtVjD1VaOlGemisfmEkXiHttMdEVgYFR%7Ce98212f86ad875da678e4d06c626636e167dd0284edd969ab1cf51c79ee62eaa",
+  },
+};
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -31,9 +39,11 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // Restore persisted source cookies before any source fetches are attempted
+  // Load hardcoded source cookies into memory on startup
   useEffect(() => {
-    void restoreAllSourceCookies();
+    for (const [sourceId, data] of Object.entries(SOURCE_COOKIES)) {
+      setSourceBrowserCookies(sourceId, data);
+    }
   }, []);
 
   useEffect(() => {

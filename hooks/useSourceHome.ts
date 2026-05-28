@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 
 import { SourceRepository } from "@/sources/sourceRepository";
@@ -9,9 +8,6 @@ import {
   type SourceChallengeRequest,
   updateSourceChallenge,
 } from "@/sources/sourceChallenge";
-import {
-  isSourceLoginRequiredError,
-} from "@/sources/sourceLogin";
 import type { SourceHomeSection } from "@/sources/types";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 
@@ -86,29 +82,6 @@ export function useSourceHome() {
           }) ?? loadError.challenge;
         setChallenge(nextChallenge);
         setError(loadError.message);
-      } else if (isSourceLoginRequiredError(loadError)) {
-        setError(loadError.message);
-        Alert.alert(
-          "Đăng nhập",
-          "Nguồn này yêu cầu đăng nhập",
-          [
-            { text: "Hủy", style: "cancel" },
-            {
-              text: "Đăng nhập",
-              onPress: () => {
-                router.push({
-                  pathname: "/source-login",
-                  params: {
-                    sourceId: loadError.login.sourceId,
-                    sourceName: loadError.login.sourceName ?? "",
-                    loginUrl: loadError.login.loginUrl,
-                    originalUrl: loadError.login.originalUrl,
-                  },
-                });
-              },
-            },
-          ],
-        );
       } else {
         setError(String(loadError));
       }
