@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 
 import { SourceRepository } from "@/sources/sourceRepository";
+import { clearSourceBrowserSession } from "@/sources/sourceBrowserSession";
 import {
   isSourceChallengeRequiredError,
   subscribeToSourceChallenge,
@@ -111,8 +112,11 @@ export function useSourceHome() {
     return subscribeToSourceChallenge(challenge.id, (event) => {
       if (event.status === "resolved") {
         setChallenge(null);
-        // Delay reload slightly to allow Cloudflare cookies to propagate
-        // to the hidden WebView's cookie jar via sharedCookiesEnabled
+        // Clear browser session so reload uses regular fetch with shared cookies
+        // instead of hidden WebView which may not have Cloudflare cookies yet
+        if (activeSource) {
+          clearSourceBrowserSession(activeSource.id);
+        }
         setTimeout(() => {
           void reload();
         }, 500);
