@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 
 import { SourceRepository } from "@/sources/sourceRepository";
@@ -18,6 +18,7 @@ export function useSourceHome() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [challenge, setChallenge] = useState<SourceChallengeRequest | null>(null);
+  const lastChallengeTimeRef = useRef(0);
 
   const reload = useCallback(async () => {
     if (!activeSource) {
@@ -76,6 +77,14 @@ export function useSourceHome() {
     } catch (loadError) {
       setSections([]);
       if (isSourceChallengeRequiredError(loadError)) {
+        // Prevent infinite loop: if we just resolved a challenge < 5s ago, don't trigger another
+        const now = Date.now();
+        if (now - lastChallengeTimeRef.current < 5000) {
+          setError("Xác minh Cloudflare không thành công. Vui lòng thử lại.");
+          return;
+        }
+        lastChallengeTimeRef.current = now;
+
         const nextChallenge =
           updateSourceChallenge(loadError.challenge.id, {
             prefetchUrls: Array.from(new Set(sectionUrls)),
@@ -102,7 +111,11 @@ export function useSourceHome() {
     return subscribeToSourceChallenge(challenge.id, (event) => {
       if (event.status === "resolved") {
         setChallenge(null);
-        void reload();
+        // Delay reload slightly to allow Cloudflare cookies to propagate
+        // to the hidden WebView's cookie jar via sharedCookiesEnabled
+        setTimeout(() => {
+          void reload();
+        }, 500);
         return;
       }
 
