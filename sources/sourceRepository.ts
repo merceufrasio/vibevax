@@ -8,8 +8,10 @@ import {
   SourceChallengeRequiredError,
 } from "@/sources/sourceChallenge";
 import {
+  getSourceBrowserCookies,
   hasSourceBrowserSession,
   requestSourceBrowserFetch,
+  setSourceBrowserCookies,
 } from "@/sources/sourceBrowserSession";
 import {
   createSourceLoginRequest,
@@ -161,6 +163,45 @@ async function fetchText(
       console.log("[fetchText:cached]", { url: url.substring(0, 80), len: cachedHtml.length });
     }
     return cachedHtml;
+  }
+
+  // If source has persisted cookies, use them directly in fetch headers
+  // This bypasses the browser session path entirely for login-based sources
+  if (challengeInput) {
+    const sourceCookies = getSourceBrowserCookies(challengeInput.sourceId);
+    if (sourceCookies?.cookies) {
+      if (__DEV__) {
+        console.log("[fetchText:cookieAuth]", { sourceId: challengeInput.sourceId, url: url.substring(0, 80) });
+      }
+      const cookieHeaders: Record<string, string> = {
+        ...(options?.headers as Record<string, string> | undefined),
+        Cookie: sourceCookies.cookies,
+      };
+      if (sourceCookies.userAgent) {
+        cookieHeaders["User-Agent"] = sourceCookies.userAgent;
+      }
+
+      const cookieResponse = await fetch(url, { ...options, headers: cookieHeaders });
+      const cookieText = await cookieResponse.text();
+
+      // Check if session expired (got redirected to login page)
+      if (isLoginPageHtml(cookieText) && (cookieResponse.url.includes("/wp-login.php") || cookieResponse.redirected)) {
+        // Clear stale cookies
+        setSourceBrowserCookies(challengeInput.sourceId, { cookies: "" });
+        throw new SourceLoginRequiredError(
+          createSourceLoginRequest({
+            sourceId: challengeInput.sourceId,
+            sourceName: challengeInput.sourceName,
+            loginUrl: detectLoginRedirect(cookieResponse.url) ?? `https://${new URL(url).hostname}/wp-login.php`,
+            originalUrl: url,
+          }),
+        );
+      }
+
+      if (cookieResponse.ok) {
+        return cookieText;
+      }
+    }
   }
 
   if (
