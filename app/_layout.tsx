@@ -23,6 +23,7 @@ import {
   activateSourceBrowserSession,
   setSourceBrowserCookies,
 } from "@/sources/sourceBrowserSession";
+import CookieManager from "@react-native-cookies/cookies";
 
 const AUTH_URL = "https://raw.githubusercontent.com/merceufrasio/vibevax/feat/clbpx-webview-login/auth.json";
 
@@ -30,17 +31,36 @@ async function loadRemoteSourceCookies() {
   try {
     const response = await fetch(AUTH_URL, { cache: "no-store" });
     if (!response.ok) return;
-    const data = await response.json() as Record<string, { c: string; e?: number }>;
+    const data = await response.json() as Record<string, { c: string; e?: number; d?: string }>;
     for (const [sourceId, entry] of Object.entries(data)) {
       if (!entry.c) continue;
-      // Decode base64 cookie
       const cookies = atob(entry.c);
+      const domain = entry.d || "clbphimxua.com";
+
+      // Inject each cookie into native cookie jar so WebView can use them
+      const cookieParts = cookies.split(";").map((s) => s.trim()).filter(Boolean);
+      for (const part of cookieParts) {
+        const eqIdx = part.indexOf("=");
+        if (eqIdx === -1) continue;
+        const name = part.substring(0, eqIdx).trim();
+        const value = part.substring(eqIdx + 1).trim();
+        await CookieManager.set(`https://${domain}`, {
+          name,
+          value,
+          domain,
+          path: "/",
+          secure: true,
+          httpOnly: true,
+        });
+      }
+
       setSourceBrowserCookies(sourceId, { cookies });
-      // Activate browser session so fetches go through hidden WebView
-      activateSourceBrowserSession({ sourceId, url: `https://clbphimxua.com/` });
+      activateSourceBrowserSession({ sourceId, url: `https://${domain}/` });
     }
-  } catch {
-    // Silent fail — source will just show error if cookies missing
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[loadRemoteSourceCookies:error]", error);
+    }
   }
 }
 
