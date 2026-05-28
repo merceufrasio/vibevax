@@ -14,17 +14,9 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Use Xcode 16.1 if available, otherwise default
-          if [ -d "/Applications/Xcode_16.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-          else
-            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-          fi
+          # Use default Xcode on macos-15 (16.2 with iOS SDK pre-installed)
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
-          # Download iOS platform (required for macos-15 runners)
-          echo "Downloading iOS platform..."
-          xcodebuild -downloadPlatform iOS
-          echo "iOS platform download complete"
           # List available SDKs
           xcodebuild -showsdks | grep iphoneos
           xcrun --sdk iphoneos --show-sdk-path
