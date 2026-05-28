@@ -171,7 +171,7 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath build/App.xcarchive \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
