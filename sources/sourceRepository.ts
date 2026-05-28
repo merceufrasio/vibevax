@@ -184,6 +184,17 @@ async function fetchText(
       const cookieResponse = await fetch(url, { ...options, headers: cookieHeaders });
       const cookieText = await cookieResponse.text();
 
+      if (__DEV__) {
+        console.log("[fetchText:cookieAuth:response]", {
+          url: url.substring(0, 80),
+          status: cookieResponse.status,
+          redirected: cookieResponse.redirected,
+          finalUrl: cookieResponse.url?.substring(0, 80),
+          len: cookieText.length,
+          isLoginPage: isLoginPageHtml(cookieText),
+        });
+      }
+
       // Check if session expired (got redirected to login page)
       if (isLoginPageHtml(cookieText) && (cookieResponse.url.includes("/wp-login.php") || cookieResponse.redirected)) {
         // Clear stale cookies
