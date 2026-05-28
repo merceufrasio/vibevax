@@ -21,7 +21,7 @@ import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
 import { setSourceBrowserCookies } from "@/sources/sourceBrowserSession";
 
-const AUTH_URL = "https://raw.githubusercontent.com/merceufrasio/vibevax/main/auth.json";
+const AUTH_URL = "https://raw.githubusercontent.com/merceufrasio/vibevax/feat/clbpx-webview-login/auth.json";
 
 async function loadRemoteSourceCookies() {
   try {
