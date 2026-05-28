@@ -57,6 +57,10 @@ const SOURCE_SPECIFIC_BLOCK_RULES: Record<string, BlockRule[]> = {
       id: "clbpx-ad-popups",
       pattern: /(?:popunder|clickunder|juicyads|exoclick|trafficjunky|adsterra|propellerads|hilltopads)/i,
     },
+    {
+      id: "clbpx-decafe-ad",
+      pattern: /decafeligiblyhad/i,
+    },
   ],
   nguonc: [
     {
