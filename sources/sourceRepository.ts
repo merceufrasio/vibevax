@@ -267,6 +267,19 @@ async function fetchText(
     }
   }
 
+  // Detect login page HTML in response body (fetch auto-followed redirect to wp-login.php)
+  if (challengeInput && isLoginPageHtml(rawText)) {
+    const loginUrl = detectLoginRedirect(response.url) ?? `https://${new URL(url).hostname}/wp-login.php`;
+    throw new SourceLoginRequiredError(
+      createSourceLoginRequest({
+        sourceId: challengeInput.sourceId,
+        sourceName: challengeInput.sourceName,
+        loginUrl,
+        originalUrl: url,
+      }),
+    );
+  }
+
   if (
     challengeInput &&
     isCloudflareChallengeHtml(rawText) &&
