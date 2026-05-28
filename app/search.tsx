@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import { Layout } from "@/constants/Layout";
 import { Typography } from "@/constants/Typography";
 import { useSourceSettings } from "@/hooks/useSourceSettings";
 import { sourceItemToMovie } from "@/sources/adapters";
+import { isSourceLoginRequiredError } from "@/sources/sourceLogin";
 import { SourceRepository } from "@/sources/sourceRepository";
 import type { PluginRegistryItem, SourceMovieItem } from "@/sources/types";
 
@@ -164,7 +166,32 @@ export default function SearchScreen() {
       setSingleSourceResults(await runSingleSourceSearch(keyword, selectedSource));
     } catch (error) {
       clearResults();
-      setSearchError(String(error));
+      if (isSourceLoginRequiredError(error)) {
+        setSearchError(error.message);
+        Alert.alert(
+          "Đăng nhập",
+          "Nguồn này yêu cầu đăng nhập",
+          [
+            { text: "Hủy", style: "cancel" },
+            {
+              text: "Đăng nhập",
+              onPress: () => {
+                router.push({
+                  pathname: "/source-login",
+                  params: {
+                    sourceId: error.login.sourceId,
+                    sourceName: error.login.sourceName ?? "",
+                    loginUrl: error.login.loginUrl,
+                    originalUrl: error.login.originalUrl,
+                  },
+                });
+              },
+            },
+          ],
+        );
+      } else {
+        setSearchError(String(error));
+      }
     } finally {
       setIsSearching(false);
     }

@@ -27,6 +27,7 @@ import {
   isSourceChallengeRequiredError,
   subscribeToSourceChallenge,
 } from "@/sources/sourceChallenge";
+import { isSourceLoginRequiredError } from "@/sources/sourceLogin";
 import type { AdBlockLogEntry } from "@/sources/types";
 import { clearAdBlockLogs, loadAdBlockLogs } from "@/utils/adBlockLogger";
 
@@ -182,6 +183,19 @@ export default function SettingsScreen() {
                       router.push({
                         pathname: "/source-verify",
                         params: { challengeId: verifyError.challenge.id },
+                      });
+                      return;
+                    }
+                    if (isSourceLoginRequiredError(verifyError)) {
+                      // Login required — navigate to login screen
+                      router.push({
+                        pathname: "/source-login",
+                        params: {
+                          sourceId: verifyError.login.sourceId,
+                          sourceName: verifyError.login.sourceName ?? "",
+                          loginUrl: verifyError.login.loginUrl,
+                          originalUrl: verifyError.login.originalUrl,
+                        },
                       });
                       return;
                     }

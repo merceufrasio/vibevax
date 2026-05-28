@@ -11,6 +11,12 @@ import {
   hasSourceBrowserSession,
   requestSourceBrowserFetch,
 } from "@/sources/sourceBrowserSession";
+import {
+  createSourceLoginRequest,
+  detectLoginRedirect,
+  isLoginPageHtml,
+  SourceLoginRequiredError,
+} from "@/sources/sourceLogin";
 import { createPluginRuntime, type LoadedPlugin } from "@/sources/pluginRuntime";
 import type {
   PluginHomeSection,
@@ -179,6 +185,18 @@ async function fetchText(
         browserFetchOptions,
       );
 
+      // Check if browser session response is a login page (session expired)
+      if (browserHtml && isLoginPageHtml(browserHtml)) {
+        throw new SourceLoginRequiredError(
+          createSourceLoginRequest({
+            sourceId: challengeInput.sourceId,
+            sourceName: challengeInput.sourceName,
+            loginUrl: `https://${new URL(url).hostname}/wp-login.php`,
+            originalUrl: url,
+          }),
+        );
+      }
+
       if (browserHtml && !isCloudflareChallengeHtml(browserHtml)) {
         if (__DEV__) {
           console.log("[fetchText:browserSession:ok]", { url: url.substring(0, 80), len: browserHtml.length });
@@ -194,6 +212,10 @@ async function fetchText(
         });
       }
     } catch (browserError) {
+      // Re-throw login-required errors — they should not be swallowed
+      if (browserError instanceof SourceLoginRequiredError) {
+        throw browserError;
+      }
       if (__DEV__) {
         console.log("[fetchText:browserSession:error]", {
           url: url.substring(0, 80),
@@ -227,6 +249,22 @@ async function fetchText(
       len: rawText.length,
       isCloudflare: isCloudflareChallengeHtml(rawText),
     });
+  }
+
+  // Detect 302 redirect to wp-login.php (login required)
+  if (challengeInput && (response.status === 302 || response.redirected)) {
+    const locationHeader = response.headers.get("location");
+    const loginUrl = detectLoginRedirect(locationHeader ?? response.url);
+    if (loginUrl) {
+      throw new SourceLoginRequiredError(
+        createSourceLoginRequest({
+          sourceId: challengeInput.sourceId,
+          sourceName: challengeInput.sourceName,
+          loginUrl,
+          originalUrl: url,
+        }),
+      );
+    }
   }
 
   if (

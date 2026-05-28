@@ -19,6 +19,7 @@ import {
 import { AppLoadingScreen } from "@/components/shared/AppLoadingScreen";
 import { Colors } from "@/constants/Colors";
 import { AppProviders } from "@/providers/AppProviders";
+import { restoreAllSourceCookies } from "@/sources/sourceCookiePersistence";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -29,6 +30,11 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  // Restore persisted source cookies before any source fetches are attempted
+  useEffect(() => {
+    void restoreAllSourceCookies();
+  }, []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
