@@ -1044,9 +1044,9 @@ export function MoviePlayer({ stream, onClose, title, posterUrl, episodeId, tmdb
             }
           }}
           onShouldStartLoadWithRequest={(request) => {
-            // DEBUG: Log all navigation requests to find ad URLs
-            if (__DEV__ && stream.sourceId === "nguonc") {
-              console.log("[WebView:nav]", request.url.substring(0, 120));
+            // clbpx player loads video from external CDN — allow all navigation
+            if (stream.sourceId === "clbpx") {
+              return true;
             }
 
             const isAllowed = isAllowedNavigation(
