@@ -59,6 +59,21 @@ function buildVerificationScript(prefetchUrls: string[]) {
         return true;
       }
 
+      // AnimeVietSub geo-block / verification page — not yet fully verified
+      if (
+        normalized.indexOf("content has been removed") !== -1 ||
+        normalized.indexOf("not available in your area") !== -1 ||
+        normalized.indexOf("hoàng sa") !== -1 ||
+        normalized.indexOf("ho\\u00e0ng sa") !== -1
+      ) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "challenge-state",
+          state: "pending"
+        }));
+        window.__REVAX_VERIFY_RUNNING__ = false;
+        return true;
+      }
+
       // Wait a moment to ensure page is fully settled (not mid-redirect)
       setTimeout(function() {
         var urls = ${JSON.stringify(prefetchUrls)};
