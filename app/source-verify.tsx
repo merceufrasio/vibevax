@@ -266,7 +266,6 @@ export default function SourceVerifyScreen() {
       if (handledRef.current) {
         return;
       }
-      };
 
       if (payload.type !== "challenge-state") {
         return;
