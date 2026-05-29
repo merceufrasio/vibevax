@@ -85,12 +85,8 @@ function buildVerificationScript(prefetchUrls: string[]) {
         cautho.value = "B\\u00E1c H\\u1ED3";
         form.__REVAX_FILLED__ = true;
 
-        var btn = document.getElementById("btn-submit");
-        if (btn) {
-          btn.click();
-        } else {
-          form.submit();
-        }
+        // DON'T auto-submit — let user verify the answers and click submit manually.
+        // This prevents reload loops if any answer is wrong.
         return true;
       }
 
@@ -174,6 +170,7 @@ export default function SourceVerifyScreen() {
   const { challengeId } = useLocalSearchParams<{ challengeId?: string }>();
   const handledRef = useRef(false);
   const webViewRef = useRef<WebView>(null);
+  const lastInjectedUrlRef = useRef<string>("");
   const [statusText, setStatusText] = useState("Đang chờ bạn xác minh Cloudflare...");
   const [error, setError] = useState<string | null>(null);
 
@@ -319,10 +316,14 @@ export default function SourceVerifyScreen() {
           thirdPartyCookiesEnabled
           onLoadProgress={({ nativeEvent }) => {
             if (!handledRef.current && nativeEvent.progress >= 0.95) {
-              // Re-run verification after navigation completes
-              try {
-                webViewRef.current?.injectJavaScript(verificationScript);
-              } catch {}
+              // Re-run verification only if URL changed since last injection
+              const currentUrl = nativeEvent.url ?? "";
+              if (lastInjectedUrlRef.current !== currentUrl) {
+                lastInjectedUrlRef.current = currentUrl;
+                try {
+                  webViewRef.current?.injectJavaScript(verificationScript);
+                } catch {}
+              }
             }
           }}
         />
