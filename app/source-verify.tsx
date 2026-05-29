@@ -34,6 +34,12 @@ function buildVerificationScript(prefetchUrls: string[]) {
         } catch (e) {}
       }
 
+      function postDebug(msg) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: "debug", msg: msg }));
+        } catch (e) {}
+      }
+
       function detectPageType() {
         var html = document.documentElement ? document.documentElement.outerHTML : "";
         var lower = html.toLowerCase();
@@ -140,6 +146,7 @@ function buildVerificationScript(prefetchUrls: string[]) {
 
       // Main detection — runs once per page load
       var pageType = detectPageType();
+      postDebug("pageType=" + pageType + " url=" + window.location.href.substring(0, 60));
 
       if (pageType === "cloudflare") {
         postState("pending");
@@ -159,13 +166,16 @@ function buildVerificationScript(prefetchUrls: string[]) {
       if (pageType === "xacminh-success") {
         // Success overlay shown — wait for redirect to complete, then re-check
         postState("pending");
+        postDebug("success detected, polling for content...");
         // Poll until page changes (redirect happens after ~3s)
         var successPollCount = 0;
         var successPoll = setInterval(function () {
           successPollCount++;
           var newType = detectPageType();
+          postDebug("poll#" + successPollCount + " type=" + newType + " url=" + window.location.href.substring(0, 50));
           if (newType === "content") {
             clearInterval(successPoll);
+            postDebug("content detected! reporting verified");
             reportContent();
           } else if (successPollCount > 20) {
             // 10 seconds max wait
@@ -235,10 +245,6 @@ export default function SourceVerifyScreen() {
   };
 
   const handleMessage = (event: WebViewMessageEvent) => {
-    if (handledRef.current) {
-      return;
-    }
-
     try {
       const payload = JSON.parse(event.nativeEvent.data) as {
         type?: string;
@@ -248,6 +254,18 @@ export default function SourceVerifyScreen() {
         error?: string;
         cookies?: string;
         userAgent?: string;
+        msg?: string;
+      };
+
+      // Show debug messages on panel
+      if (payload.type === "debug") {
+        setStatusText(payload.msg ?? "");
+        return;
+      }
+
+      if (handledRef.current) {
+        return;
+      }
       };
 
       if (payload.type !== "challenge-state") {
