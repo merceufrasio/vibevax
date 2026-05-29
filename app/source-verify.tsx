@@ -56,7 +56,12 @@ function buildVerificationScript(prefetchUrls: string[]) {
 
         // 3. AnimeVietSub success overlay (transitioning to content)
         var overlay = document.getElementById("success-overlay");
-        if (overlay && overlay.classList && overlay.classList.contains("show")) {
+        if (overlay) {
+          return "xacminh-success";
+        }
+
+        // Also check by text content (overlay may not have class yet)
+        if (lower.indexOf("xác minh thành công") !== -1 || lower.indexOf("đang chuyển hướng") !== -1) {
           return "xacminh-success";
         }
 
@@ -152,9 +157,22 @@ function buildVerificationScript(prefetchUrls: string[]) {
       }
 
       if (pageType === "xacminh-success") {
-        // Success overlay shown — don't report verified yet, wait for redirect
+        // Success overlay shown — wait for redirect to complete, then re-check
         postState("pending");
-        window.__REVAX_VERIFY_RUNNING__ = false;
+        // Poll until page changes (redirect happens after ~3s)
+        var successPollCount = 0;
+        var successPoll = setInterval(function () {
+          successPollCount++;
+          var newType = detectPageType();
+          if (newType === "content") {
+            clearInterval(successPoll);
+            reportContent();
+          } else if (successPollCount > 20) {
+            // 10 seconds max wait
+            clearInterval(successPoll);
+            window.__REVAX_VERIFY_RUNNING__ = false;
+          }
+        }, 500);
         return true;
       }
 
