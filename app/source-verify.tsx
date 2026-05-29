@@ -21,100 +21,148 @@ import {
 function buildVerificationScript(prefetchUrls: string[]) {
   return `
     (function () {
+      // Re-entrancy guard — script gets injected multiple times via onLoadProgress
       if (window.__REVAX_VERIFY_RUNNING__) {
         return true;
       }
-
       window.__REVAX_VERIFY_RUNNING__ = true;
 
-      // --- AnimeVietSub xac-minh.php logic ---
-      // If on xac-minh.php, let user fill the form manually.
-      // Script will re-run after page navigates away (via onLoadProgress).
-      if (window.location.href.indexOf("xac-minh.php") !== -1) {
-        window.__REVAX_VERIFY_RUNNING__ = false;
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "challenge-state",
-          state: "pending"
-        }));
-        return true;
-      }
-      // --- End xac-minh.php logic ---
-
-      var html = document.documentElement ? document.documentElement.outerHTML : "";
-      var normalized = html.toLowerCase();
-      var isChallenge =
-        normalized.indexOf("cloudflare") !== -1 &&
-        (
-          normalized.indexOf("verify you are human") !== -1 ||
-          normalized.indexOf("checking your browser") !== -1 ||
-          normalized.indexOf("__cf_chl") !== -1 ||
-          normalized.indexOf("cf-turnstile") !== -1
-        );
-
-      if (isChallenge) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "challenge-state",
-          state: "pending"
-        }));
-        return true;
+      function postState(state, extra) {
+        var payload = Object.assign({ type: "challenge-state", state: state }, extra || {});
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        } catch (e) {}
       }
 
-      // AnimeVietSub geo-block / verification page — not yet fully verified
-      if (
-        normalized.indexOf("content has been removed") !== -1 ||
-        normalized.indexOf("not available in your area") !== -1 ||
-        normalized.indexOf("hoàng sa") !== -1 ||
-        normalized.indexOf("ho\\u00e0ng sa") !== -1
-      ) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "challenge-state",
-          state: "pending"
-        }));
-        window.__REVAX_VERIFY_RUNNING__ = false;
-        return true;
-      }
+      function detectPageType() {
+        var html = document.documentElement ? document.documentElement.outerHTML : "";
+        var lower = html.toLowerCase();
 
-      // Wait a moment to ensure page is fully settled (not mid-redirect)
-      setTimeout(function() {
-        var urls = ${JSON.stringify(prefetchUrls)};
-
-      Promise.all(
-        urls.map(function (url) {
-          return fetch(url, { credentials: "include" })
-            .then(function (response) { return response.text(); })
-            .then(function (pageHtml) { return [url, pageHtml]; })
-            .catch(function () { return [url, ""]; });
-        })
-      ).then(function (entries) {
-        var pages = {};
-        entries.forEach(function (entry) {
-          if (entry[0] && entry[1]) {
-            pages[entry[0]] = entry[1];
-          }
-        });
-
-        if (!pages[window.location.href] && html) {
-          pages[window.location.href] = html;
+        // 1. Cloudflare turnstile / challenge page
+        if (lower.indexOf("cloudflare") !== -1 && (
+          lower.indexOf("verify you are human") !== -1 ||
+          lower.indexOf("checking your browser") !== -1 ||
+          lower.indexOf("__cf_chl") !== -1 ||
+          lower.indexOf("cf-turnstile") !== -1 ||
+          lower.indexOf("cf-challenge-running") !== -1
+        )) {
+          return "cloudflare";
         }
 
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "challenge-state",
-          state: "verified",
-          html: html,
-          pages: pages,
-          cookies: document.cookie,
-          userAgent: navigator.userAgent
-        }));
+        // 2. AnimeVietSub xác minh form page (has the verify form)
+        if (document.getElementById("verify-form") || document.getElementById("btn-submit")) {
+          return "xacminh";
+        }
+
+        // 3. AnimeVietSub success overlay (transitioning to content)
+        var overlay = document.getElementById("success-overlay");
+        if (overlay && overlay.classList && overlay.classList.contains("show")) {
+          return "xacminh-success";
+        }
+
+        // 4. Content page (no challenge markers, no form)
+        return "content";
+      }
+
+      function autoFillXacMinh() {
+        var form = document.getElementById("verify-form");
+        if (!form || form.__REVAX_FILLED__) return false;
+
+        var ngayNg = form.querySelector('input[name="ngay_ng"]');
+        var tiente = form.querySelector('input[name="tiente"]');
+        var quocky = form.querySelector('input[name="quocky"]');
+        var quandao = form.querySelector('input[name="quandao"]');
+        var cautho = form.querySelector('input[name="cautho"]');
+
+        if (!ngayNg || !tiente || !quocky || !quandao || !cautho) {
+          return false;
+        }
+
+        ngayNg.value = "20/11";
+        tiente.value = "VND";
+        quocky.value = "5";
+        quandao.value = "Vi\\u1EC7t Nam";
+        cautho.value = "B\\u00E1c H\\u1ED3";
+        form.__REVAX_FILLED__ = true;
+
+        var btn = document.getElementById("btn-submit");
+        if (btn) {
+          btn.click();
+        } else {
+          form.submit();
+        }
+        return true;
+      }
+
+      function reportContent() {
+        var html = document.documentElement ? document.documentElement.outerHTML : "";
+        var urls = ${JSON.stringify(prefetchUrls)};
+
+        Promise.all(urls.map(function (url) {
+          return fetch(url, { credentials: "include" })
+            .then(function (r) { return r.text(); })
+            .then(function (h) { return [url, h]; })
+            .catch(function () { return [url, ""]; });
+        })).then(function (entries) {
+          var pages = {};
+          entries.forEach(function (e) {
+            if (e[0] && e[1]) pages[e[0]] = e[1];
+          });
+          if (!pages[window.location.href] && html) {
+            pages[window.location.href] = html;
+          }
+          postState("verified", {
+            html: html,
+            pages: pages,
+            cookies: document.cookie,
+            userAgent: navigator.userAgent
+          });
+        }).catch(function () {
+          postState("verified", {
+            html: html,
+            pages: {},
+            cookies: document.cookie,
+            userAgent: navigator.userAgent
+          });
+        });
+      }
+
+      // Main detection — runs once per page load
+      var pageType = detectPageType();
+
+      if (pageType === "cloudflare") {
+        postState("pending");
         window.__REVAX_VERIFY_RUNNING__ = false;
-      }).catch(function (error) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: "challenge-state",
-          state: "error",
-          error: String(error)
-        }));
+        return true;
+      }
+
+      if (pageType === "xacminh") {
+        // Try auto-fill once
+        var filled = autoFillXacMinh();
+        postState("pending");
+        // Reset flag so script can re-run after navigation
         window.__REVAX_VERIFY_RUNNING__ = false;
-      });
-      }, 1500); // End setTimeout — wait 1.5s for page to settle
+        return true;
+      }
+
+      if (pageType === "xacminh-success") {
+        // Success overlay shown — don't report verified yet, wait for redirect
+        postState("pending");
+        window.__REVAX_VERIFY_RUNNING__ = false;
+        return true;
+      }
+
+      // Content page — wait briefly to ensure page settled, then report verified
+      setTimeout(function () {
+        // Re-check after delay in case page is still navigating
+        var typeAfterDelay = detectPageType();
+        if (typeAfterDelay !== "content") {
+          postState("pending");
+          window.__REVAX_VERIFY_RUNNING__ = false;
+          return;
+        }
+        reportContent();
+      }, 1500);
 
       return true;
     })();
@@ -250,7 +298,6 @@ export default function SourceVerifyScreen() {
         <WebView
           ref={webViewRef}
           injectedJavaScript={verificationScript}
-          injectedJavaScriptBeforeContentLoaded={verificationScript}
           javaScriptEnabled
           onMessage={handleMessage}
           onLoadEnd={() => {
@@ -258,9 +305,10 @@ export default function SourceVerifyScreen() {
               setStatusText("Đã tải trang xác minh, chờ bạn hoàn tất bước kiểm tra.");
             }
           }}
-          onNavigationStateChange={() => {
+          onNavigationStateChange={(navState) => {
             if (!handledRef.current) {
-              setStatusText("Đang kiểm tra trạng thái xác minh...");
+              const url = navState.url ?? "";
+              setStatusText("URL: " + url.substring(0, 80));
             }
           }}
           originWhitelist={["*"]}
@@ -271,7 +319,7 @@ export default function SourceVerifyScreen() {
           thirdPartyCookiesEnabled
           onLoadProgress={({ nativeEvent }) => {
             if (!handledRef.current && nativeEvent.progress >= 0.95) {
-              // Re-run verification after navigation completes, especially after Cloudflare redirects.
+              // Re-run verification after navigation completes
               try {
                 webViewRef.current?.injectJavaScript(verificationScript);
               } catch {}
