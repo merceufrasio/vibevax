@@ -21,6 +21,11 @@ import {
 function buildVerificationScript(prefetchUrls: string[]) {
   return `
     (function () {
+      // If success was already detected, don't run script again — let page redirect naturally
+      if (window.__REVAX_SUCCESS_DETECTED__) {
+        return true;
+      }
+
       // Re-entrancy guard — script gets injected multiple times via onLoadProgress
       if (window.__REVAX_VERIFY_RUNNING__) {
         return true;
@@ -164,20 +169,12 @@ function buildVerificationScript(prefetchUrls: string[]) {
       }
 
       if (pageType === "xacminh-success") {
-        // Success overlay shown — wait for redirect to complete, then re-check
+        // Success! Block all further script injections — let the page redirect naturally
+        window.__REVAX_SUCCESS_DETECTED__ = true;
+        postDebug("SUCCESS! Waiting for redirect...");
         postState("pending");
-        postDebug("success detected, polling for content...");
-        // Poll until page changes (redirect happens after ~3s)
-        var successPollCount = 0;
-        var successPoll = setInterval(function () {
-          successPollCount++;
-          var newType = detectPageType();
-          postDebug("poll#" + successPollCount + " type=" + newType + " url=" + window.location.href.substring(0, 50));
-          if (newType === "content") {
-            clearInterval(successPoll);
-            postDebug("content detected! reporting verified");
-            reportContent();
-          } else if (successPollCount > 20) {
+        return true;
+      }
             // 10 seconds max wait
             clearInterval(successPoll);
             window.__REVAX_VERIFY_RUNNING__ = false;
