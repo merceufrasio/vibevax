@@ -177,6 +177,11 @@ export function consumeVerifiedSourceHtml(url: string) {
     return null;
   }
 
-  verifiedHtmlByUrl.delete(url);
+  // Don't delete on first read — keep cache available for retries within session.
+  // Cache is cleared on next challenge resolution or via clearVerifiedSourceHtml().
   return cachedHtml;
+}
+
+export function clearVerifiedSourceHtml() {
+  verifiedHtmlByUrl.clear();
 }

@@ -85,8 +85,18 @@ function buildVerificationScript(prefetchUrls: string[]) {
         cautho.value = "B\\u00E1c H\\u1ED3";
         form.__REVAX_FILLED__ = true;
 
-        // DON'T auto-submit — let user verify the answers and click submit manually.
-        // This prevents reload loops if any answer is wrong.
+        // Auto-click submit after a short delay (let user see the values briefly)
+        setTimeout(function () {
+          if (form.__REVAX_SUBMITTED__) return;
+          form.__REVAX_SUBMITTED__ = true;
+          var btn = document.getElementById("btn-submit");
+          if (btn) {
+            btn.click();
+          } else {
+            try { form.submit(); } catch (e) {}
+          }
+        }, 800);
+
         return true;
       }
 

@@ -112,6 +112,8 @@ export function useSourceHome() {
     return subscribeToSourceChallenge(challenge.id, (event) => {
       if (event.status === "resolved") {
         setChallenge(null);
+        // Reset cooldown so reload can attempt fetch fresh after verification
+        lastChallengeTimeRef.current = 0;
         // Clear browser session so reload uses regular fetch with shared cookies
         // instead of hidden WebView which may not have Cloudflare cookies yet
         if (activeSource) {
